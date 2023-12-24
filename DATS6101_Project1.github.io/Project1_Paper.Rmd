@@ -1,0 +1,956 @@
+---
+title: "Project 1:Write Up"
+author: "Likhitha, Paulina, Shrihan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    code_folding: hide
+    number_sections: false
+    toc: yes
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+options(scientific=T, digits = 3) 
+library(ezids)
+library(ggplot2)
+#install.packages("tigris")
+library(tigris)
+#install.packages("sf")
+library(sf)
+#install.packages("here")
+library(here)
+#install.packages("dplyr")
+library(dplyr)
+#install.packages("leaflet")
+library(leaflet)
+#install.packages("reshape2")
+library(reshape2)
+#install.packages("tmap")
+library(tmap)
+#install.packages("viridis")
+library(viridis)
+#install.packages("stargazer")
+library(stargazer)
+library(extrafont)
+font_import(pattern = "Avenir")
+
+```
+
+## Introduction
+
+### Research Topic 
+The aim of the project was to identify areas of vulnerability for different demographic groups at the census tract level by examining trends in the variables comprising the Social Vulnerability Index (SVI) created by the CDC. SMART questions were identified to narrow the scope of the project. The project sought to address a series of questions, all attempting to identify if there was any correlation between individual census variables and the compiled Thematic SVI scores, to illuminate any possible underrepresented groups across the indexes. 
+
+**1**: Does breaking down the SVI by different demographics, such as elderly populations, minority group populations, sex, income impact the vulnerability scores of the census tracts?
+
+**2**: Is there significance in identifying areas of population vulnerability based on different demographics compared to the overall population of each tract? 
+
+**3**: Do specific demographics’ vulnerability ratings have a higher impact on the overall SVI score of the census tract? 
+
+**4**: Can we visualize the different vulnerability scores based on demographic in an impactful way for public health officials and emergency planners? 
+
+**5**: Can we provide relevant/significant findings to public health and emergency planning officials (in terms of emergency response and social justice issues)? 
+
+### Social Vulnerability Index (SVI) 
+
+According to the [CDC](https://www.atsdr.cdc.gov/placeandhealth/svi/index.html), social vulnerability defines the potential negative effects on communities caused by external stresses on human health. These stresses can be events like natural disasters, disease outbreaks, or human-caused events. 
+To address social vulnerability, the CDC has compiled the SVI as a tool to help public health officials and emergency response planners identify communities that may need support before, during, or after disasters. It is provided at the state, county, and census tract level. It is comprised of 16 census variables. 
+By assessing trends in the variables used to create the SVI, the project will examine how splitting the population by different demographics such as race or age affects each census tract’s vulnerability across the 5 compiled themes. This could help identify if there are systemic injustices or inequities, as well as where different vulnerable groups are located. 
+
+
+## Data Set and Variables 
+
+### SVI Data 
+The SVI is comprised of 5 total SVI calculations: 4 thematic and 1 overall summary composed by the sum of the themes. 
+
+It is constructed by selecting the specific indicator variables within different themes that are chosen to represent the various aspects of vulnerability, enabling this project to examine if any themes leave out variable that could be important. Then Census tracts are ranked within each state, as well as against other states, creating tract rankings ranging from 0 to 1, with higher values indicating greater vulnerability.
+The CDC states: "For each tract, we generated its percentile rank among all tracts for 1) the 16 individual variables, 2) the four themes, and 3) its overall position."
+
+Then, these percentiles were summed for each of the four themes, and then ordered to determine theme-specific percentile rankings.
+
+**Socioeconomic Status**: `RPL_THEME1`
+
+* Below 150% Poverty
+
+* Unemployed
+
+* Housing Cost Burden
+
+* No High School Diploma
+
+* No Health Insurance
+
+**Household Characteristics**: `RPL_THEME2`
+
+* Aged 65 & Older
+ 
+* Aged 17 & Younger	
+
+* Civilian with a Disability
+
+* Single-Parent Households
+
+* English Language Proficiency
+
+
+**Racial & Ethnic Minority Status**:`RPL_THEME3`
+
+* Hispanic or Latino (of any race); Black and African American, Not Hispanic or Latino; American Indian and Alaska Native, Not Hispanic or Latino; Asian, Not Hispanic or Latino; Native Hawaiian and Other Pacific Islander, Not Hispanic or Latino; Two or More Races, Not Hispanic or Latino; Other Races, Not Hispanic or Latino
+
+**Housing Type & Transportation**: `RPL_THEME4`
+
+* Multi-Unit Structures
+
+* Mobile Homes
+
+* Crowding
+
+* No Vehicle
+
+* Group Quarters
+
+**Overall**: `RPL_THEMES`
+
+* CDC then sums the sums for each theme, orders the tracts, and then calculates overall percentile rankings.
+
+*Note: The dataset uses the value `-999` for tracts with zero estimates for total population or other census data. These tracts were then added back to the SVI databases after rankin, and were nit used for calculations.*
+
+### Spatial Data
+
+The geographic scale of the data is limited to California census tracts, which allows a detailed analysis of over 9,000 census tracts, hopefully enabling more tailored actions and responses. CA is a state that is prone to natural disasters such as earthquakes, wildfires, and has a very high population, making it an important case study. 
+
+## Cleaning the Data
+
+**We performed the following steps to clean the SVI dataset**
+
+**Extract the data file**
+
+As mentioned before the dataset was sourced directly from the CDC website. The dataset was downloaded in the form of CSV file and integrated into the project.
+
+
+```{r Load the data file, echo=T, results='hide'}
+SVI_Data <- read.csv("SVI_2020_US.csv")
+head(SVI_Data)
+```
+
+**Subset the columns**
+
+The SVI dataset has close to 138 columns. However, for our specific analysis, we don't require all of 138 columns. Hence we subsetted the dataset by carefully selecting the 40 most pertinent and crucial columns for our analysis. This included demographic variables and important comparsion variables.
+
+```{r select columns, echo=T, results='hide'}
+#selecting the required columns by subset function
+
+Clean_data <- subset(SVI_Data, select = c(ST,STATE,ST_ABBR,STCNTY,COUNTY,FIPS,LOCATION,AREA_SQMI,EPL_POV150,	EPL_UNEMP,	EPL_HBURD,	EPL_NOHSDP,	EPL_UNINSUR,	SPL_THEME1,	RPL_THEME1,	EPL_AGE65,	EPL_AGE17,	EPL_DISABL,	EPL_SNGPNT,	EPL_LIMENG,	SPL_THEME2,	RPL_THEME2,	EPL_MINRTY,	SPL_THEME3,	RPL_THEME3, E_MINRTY, EP_HISP, EP_ASIAN, EP_AIAN, EPL_MUNIT,	EPL_MOBILE,	EPL_CROWD,	EPL_NOVEH,	EPL_GROUPQ,	SPL_THEME4,	RPL_THEME4,	SPL_THEMES,	RPL_THEMES, E_AGE65, EP_POV150, EP_AGE65, EP_NOHSDP
+) )
+
+head(Clean_data)
+
+
+```
+
+**Subset the rows**
+
+Additionally, the dataset comprises of over 84,000 rows, all of the USA census tracts. Again to tailor our analysis, we opted to narrow our scope to a specific area of interest, so we performed a row subsetting operation to include data exclusively related to California.
+
+```{r CA tracts, echo=T, results='hide'}
+CA_SVI <- subset(Clean_data, ST_ABBR == "CA")
+```
+
+## Outliers {.tabset}
+
+### RPL_THEME1
+
+```{r Outliers}
+Outliers1 = outlierKD2(CA_SVI, RPL_THEME1, rm = FALSE, qqplt = TRUE)
+```
+
+### RPL_THEME2
+
+```{r}
+Outliers2 = outlierKD2(CA_SVI, RPL_THEME2, rm = FALSE, qqplt = TRUE)
+```
+
+### RPL_THEME3
+
+```{r}
+Outliers3 = outlierKD2(CA_SVI, RPL_THEME3, rm = FALSE, qqplt = TRUE)
+
+```
+
+### RPL_THEME4
+
+```{r}
+Outliers4 = outlierKD2(CA_SVI, RPL_THEME4, rm = FALSE, qqplt = TRUE)
+```
+
+### RPL_THEMES
+
+```{r}
+Outliers = outlierKD2(CA_SVI, RPL_THEMES, rm = FALSE, qqplt = TRUE)
+```
+
+### Explanation
+
+Here it is seen that there is a large number of missing values, represented by `-999`, but the number of missing values does not equal the number of outliers identified. Thus, for the purposes of the analysis the missing values values were removed, but the outliers were not removed so it would be possible to identify any particular at risk census tracts in the analysis. 
+ 
+**RPL_THEMES**
+```{r}
+count <- sum(CA_SVI$RPL_THEMES == -999)
+count1 <- sum(CA_SVI$RPL_THEME1 == -999) 
+count2 <- sum(CA_SVI$RPL_THEME2 == -999) 
+count3 <- sum(CA_SVI$RPL_THEME3 == -999)
+count4 <- sum(CA_SVI$RPL_THEME4 == -999)
+```
+
+* There are `r count` missing values in `RPL_THEMES`
+
+* There are `r count1` missing values in `RPL_THEME1`
+
+* There are `r count2` missing values in `RPL_THEME2`
+
+* There are `r count3` missing values in `RPL_THEME3`
+
+* There are `r count4` missing values in `RPL_THEME4`
+
+## {-}
+
+
+## Data Analysis {.tabset .tabset-fade .tabset-pills}
+
+### Maps
+It is interesting to examine the spatial distribution of this dataset, given that it looks across census tracts, a geographic scale. This portion of the analysis examines the spatial distribution of SVI and demographic variables.
+
+In addition to mapping the various SVI scores, it was also deemed important to map the spatial distribution of these demographic variables used to comprise the indexes. This way, it is possible to compare the spatial distribution of demographic data to where high risk scores are located. This analysis was done on the county level scale, to understand an overall picture of demographics. 
+
+First the data had to be prepped for spatial analysis.
+*Note, when conducting the spatial join between `ca_tracts` and `CA_SVI`, there were 20 tracts present in `ca_tracts` not identified in `CA_SVI`.*
+
+```{r spatialewa, echo=T, results='hide'}
+#Load 2020 Census Tract shapefile for California
+ca_tracts <- tracts(state = "CA", year = 2020)
+
+#add 0 to FIPS variable in CA_SVI to merge with ca_tracts (on GEOID)
+CA_SVI$FIPS <- paste0("0", CA_SVI$FIPS)
+
+#Join CA_SVI and ca_tracts based on FIPS and GEOID
+CA_SVI <- inner_join(CA_SVI, ca_tracts, by = c("FIPS" = "GEOID"))
+
+#for mapping, convert CA_SVI to a Simple Features (map object)
+ca_svi_sf <- st_as_sf(CA_SVI)
+
+
+```
+
+#### Maps {.tabset .tabset-fade .tabset-pills}
+
+##### RPL_THEMES
+
+```{r themes, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, RPL_THEMES != -999)
+
+map0= 
+  
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = RPL_THEMES)) +
+  scale_fill_viridis(option = "D", direction = 1) +
+  labs(title = "Overall SVI Score by CA Census Tracts") +
+  theme_void()
+map0 
+
+
+```
+
+##### RPL_THEME1
+
+```{r theme1, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, RPL_THEME1 != -999)
+
+map1 = 
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = RPL_THEME1)) +
+  scale_fill_viridis(option = "D", direction = 1) +
+  labs(title = "Theme 1 (Socioeconomic Status) SVI Score by CA Census Tracts") +
+  theme_void()
+map1
+
+```
+
+##### RPL_THEME2
+```{r theme2, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, RPL_THEME2 != -999)
+
+map2 = 
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = RPL_THEME2)) +
+  scale_fill_viridis(option = "D", direction = 1) +
+  labs(title = "Theme 2 (Household Characteristics) SVI Score by CA Census Tracts") +
+  theme_void()
+map2
+```
+
+##### RPL_THEME3
+
+```{r theme3, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, RPL_THEME3 != -999)
+
+map3 = 
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = RPL_THEME3)) +
+  scale_fill_viridis(option = "D", direction = 1) +
+  labs(title = "Theme 3 (Racial & Ethnic Minority Status) SVI Score by CA Census Tracts") +
+  theme_void()
+
+map3
+```
+
+##### RPL_THEME4
+
+```{r theme4, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, RPL_THEME4 != -999)
+
+map4 =
+  
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = RPL_THEME4)) +
+  scale_fill_viridis(option = "D", direction = 1) +
+  labs(title = "Theme 4 (Housing Type & Transportation) SVI Score by CA Census Tracts") +
+  theme_void()
+
+map4
+
+```
+
+
+##### E_MINRTY Map
+
+```{r minority, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, EPL_MINRTY != -999)
+
+EPL_MINRTY_map = 
+ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = EPL_MINRTY)) +
+  scale_fill_viridis(option = "C", direction = 1) +
+  labs(title = "Estimate of Minority Population by CA Census Tracts", fill = "Estimate of Minority Population" ) +
+  theme_void()
+
+EPL_MINRTY_map
+```
+
+
+##### EP_AGE65 Map 
+
+```{r age, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, EP_AGE65 != -999)
+
+EP_AGE65_map =
+  ggplot(data = ca_svi_sf_clean) +
+  geom_sf(aes(fill = EP_AGE65)) +
+  scale_fill_viridis(option = "C", direction = 1) +
+  labs(title = "Estimate of Elderly Population by CA Census Tracts", fill = "Estimate of Persons aged 65+")+
+theme_void()
+
+EP_AGE65_map
+
+```
+
+
+##### EP_POV150 Map 
+
+```{r pov, echo=T, results='hide'}
+ca_svi_sf_clean <- subset(ca_svi_sf, EP_POV150 != -999)
+
+EP_AGE65_map =
+
+ggplot(data = ca_svi_sf_clean) +
+geom_sf(aes(fill = EP_POV150)) +
+scale_fill_viridis(option = "C", direction = 1) +
+labs(title = "Estimate of Persons Below 150% povertyby CA Census Tracts", fill = "Estimate of Persons in Poverty") +
+theme_void()
+
+EP_AGE65_map
+```
+
+
+### Histogram
+
+#### Histograms {.tabset .tabset-fade .tabset-pills}
+
+We harnessed the power of histograms to pinpoint the counties within different California regions that could be particularly vulnerable to the effects of disasters or health crises. Our analysis successfully unveiled the top 10 counties characterized by the highest Social Vulnerability Index (SVI) scores, elevated poverty rates, increased unemployment levels, and a notable population lacking insurance coverage.
+
+##### HISTOGRAM #1
+
+This visualization showcases the counties most susceptible to social vulnerability, highlighting the top 10 counties with the highest mean SVI scores. 
+
+```{r Histogram1}
+county_svi <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(mean_SVI = mean(RPL_THEMES)) %>%
+  ungroup()
+
+# Select the top 10 counties with the highest mean SVI
+top_10_counties <- county_svi %>%
+  top_n(10, wt = mean_SVI)
+
+# Create a histogram of the mean SVI for the top 10 counties
+histogram_plot <- ggplot(data = top_10_counties, aes(x = reorder(COUNTY, -mean_SVI), y = mean_SVI)) +
+  geom_bar(stat = "identity", fill = "darkgreen", color = "yellow", alpha = 0.7) +
+  
+  # Label the axes and add a title
+  labs(x = "County", y = "Mean SPL_THEMES (SVI)", title = "Top 10 Counties with High SVI") +
+  
+  # Customize the appearance
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Rotate x-axis labels for better readability
+
+# Display the histogram
+print(histogram_plot)
+
+```
+
+The histogram visualizes the distribution of mean SVI (mean of RPL_THEMES) scores across different counties. The height of each bar represents the mean SVI for a specific county. Higher bar heights indicate higher mean SVI scores. From the histogram its evident that the highest mean SVI in California is > 0.8 (Imperial county)
+
+This histogram serves as a valuable visualization for decision-makers, emergency planners, and policymakers. It highlights the areas that might require special attention and resources to address social vulnerability effectively. Targeting these counties for disaster preparedness, healthcare support, or socioeconomic initiatives can contribute to enhancing resilience and reducing vulnerability.
+
+
+##### HISTOGRAM #2
+
+The below histogram displays the top 10 counties in California with the highest levels of poverty based on the EPL_POV150 (Percentage of the population living below the poverty line) indicator. These counties are characterized by a significant percentage of their population living below the poverty line, indicating economic vulnerability. 
+
+```{r}
+county_svi <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(mean_POV = mean(EPL_POV150)) %>%
+  ungroup()
+
+# Select the top 10 counties with the highest mean EPL_POV
+top_10_counties_POV150 <- county_svi %>%
+  top_n(10, wt = mean_POV)
+
+histogram_plot <- ggplot(data = top_10_counties_POV150, aes(x = reorder(COUNTY, -mean_POV), y = mean_POV)) +
+  geom_bar(stat = "identity", fill = "darkgreen", color = "yellow", alpha = 0.7) +
+  
+  # Label the axes and add a title
+  labs(x = "County", y = "Mean EPL_POV (Poverty)", title = "Top 10 Counties with High Povery") +
+  
+  # Customize the appearance
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Rotate x-axis labels for better readability
+
+# Display the histogram
+print(histogram_plot)
+
+```
+
+The histogram visually represents the distribution of mean EPL_POV150 (Poverty) scores across different counties in California. Each bar in the histogram corresponds to a specific county, and the height of the bar indicates the mean poverty level in that county. Taller bars represent counties with higher mean poverty rates.
+
+This histogram can be a valuable visualization for social planners, and organizations working on poverty alleviation. It identifies areas with the most pressing poverty-related challenges, guiding resource allocation, social support programs, and initiatives aimed at reducing poverty and improving the well-being of residents.
+
+##### HISTOGRAM #3
+
+The below histogram displays the top 10 counties in California with the highest levels of unemployment based on the EPL_UNEMP (Percentage of the population unemployed) indicator. These counties experience a substantial percentage of their population facing unemployment, indicating economic and workforce vulnerability.
+
+```{r}
+county_svi <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(mean_UNE = mean(EPL_UNEMP)) %>%
+  ungroup()
+
+# Select the top 10 counties with the highest mean EPL_UNEMP
+top_10_counties_UNEMP <- county_svi %>%
+  top_n(10, wt = mean_UNE)
+
+histogram_plot <- ggplot(data = top_10_counties_UNEMP, aes(x = reorder(COUNTY, -mean_UNE), y = mean_UNE)) +
+  geom_bar(stat = "identity", fill = "darkgreen", color = "yellow", alpha = 0.7) +
+  
+  # Label the axes and add a title
+  labs(x = "County", y = "Mean mean_UNE (Unemployment)", title = "Top 10 Counties with High unemployment") +
+  
+  # Customize the appearance
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Rotate x-axis labels for better readability
+
+# Display the histogram
+print(histogram_plot)
+
+```
+
+The histogram visually represents the distribution of mean EPL_UNEMP (Unemployment) scores across various counties in California. Each bar in the histogram corresponds to a specific county, and the height of the bar indicates the mean unemployment rate in that county. Taller bars represent counties with higher mean unemployment rates.
+
+This histogram serves as a valuable visualization for workforce development agencies, and organizations involved in employment and economic growth. It highlights regions where unemployment is a significant concern, providing insights for resource allocation, job creation initiatives, and unemployment reduction programs.
+
+
+##### HISTOGRAM #4
+
+The below histogram highlights the top 10 counties in California with the highest levels of people without health insurance, as measured by the EPL_UNINSUR (Percentage of the population without health insurance) indicator. These counties have a significant portion of their population lacking health insurance coverage, indicating potential vulnerabilities in accessing healthcare services.
+
+```{r}
+county_svi <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(mean_UNINSUR = mean(EPL_UNINSUR)) %>%
+  ungroup()
+
+# Select the top 10 counties with the highest mean mean_UNINSUR
+top_10_counties_UNINSUR <- county_svi %>%
+  top_n(10, wt = mean_UNINSUR)
+
+histogram_plot <- ggplot(data = top_10_counties_UNINSUR, aes(x = reorder(COUNTY, -mean_UNINSUR), y = mean_UNINSUR)) +
+  geom_bar(stat = "identity", fill = "darkgreen", color = "yellow", alpha = 0.7) +
+  
+  # Label the axes and add a title
+  labs(x = "County", y = "Mean mean_UNINSUR (Uninsured)", title = "Top 10 Counties with people without Insurance") +
+  
+  # Customize the appearance
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))  # Rotate x-axis labels for better readability
+
+# Display the histogram
+print(histogram_plot)
+
+```
+
+The histogram visually represents the distribution of mean EPL_UNINSUR (Uninsured) scores across various counties in California. Each bar in the histogram corresponds to a specific county, and the height of the bar indicates the mean percentage of the population without health insurance in that county. Taller bars represent counties with a higher percentage of uninsured residents.
+
+This histogram provides valuable insights for healthcare providers, and organizations working to improve access to healthcare services. It highlights regions where a substantial population lacks health insurance, guiding initiatives for expanding healthcare coverage and addressing healthcare disparities.
+
+What is striking in all four of these visualizations is the consistent presence of specific counties, namely Madera, Fresno, Merced, and Mendocino, consistently appearing among the top 10 counties for all four critical variables. This noteworthy pattern underscores the potential significance of these counties as focal points for targeted interventions and disaster preparedness initiatives. Additionally we could also focus on these counties while working on future projects and perform comparitive or Root cause analysis to determine why certain areas have higher SVI compared to others. 
+
+### Scatterplots 
+
+#### Scatterplots {.tabset .tabset-fade .tabset-pills}
+
+##### Scatterplots #1
+A scatterplot comparing "RPL_THEMES" to "RPL_THEME1" offers valuable insights into the interplay of various social vulnerability factors. By examining this relationship, we can uncover how "Socioeconomic Status" (RPL_THEME1) influences the broader composite of social vulnerability (RPL_THEMES).
+
+```{r}
+CA_SVI <- subset(CA_SVI,  RPL_THEME1!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEMES!= -999 )
+CA_SVI<-subset(head(CA_SVI,4000))
+CA_SVI1 <- subset(head(CA_SVI, 8000))
+
+
+
+
+ggplot(CA_SVI, aes(x = RPL_THEMES, y = RPL_THEME1, color=COUNTY)) +
+  geom_point() +
+  labs(x = " Total Svi score", y = "RPL_THEME1(Socioeconomic Status)") +
+  ggtitle("SPL_THEMES VS SPL_THEME1")
+
+```
+
+The scatter plot shows the relationship between the total SVI score (RPL_THEMES) and the socioeconomic status theme score (RPL_THEME1). The graph is colored by county, which allows us to see how the relationship between the two variables varies across different counties in California.
+
+The graph shows a positive correlation between the total SVI score and the socioeconomic status theme score. This means that counties with higher socioeconomic status scores also tend to have higher total SVI scores. This is likely because the socioeconomic status theme includes measures of poverty, unemployment, education, and housing, all of which are important factors that contribute to the overall SVI score. counties like Los Angles and Madera tend to have higher total SVI scores than counties in other parts of the state.
+
+However, there is also some variation in the relationship between the two variables across different counties. For example, some counties with high socioeconomic status (like LA) scores have relatively low total SVI scores, and vice versa. This suggests that there are other factors, in addition to socioeconomic status, that also contribute to the overall SVI score.
+
+
+##### Scatterplots #2
+"RPL_THEMES" vs "EP_AGE65" provides insights into the influence of age demographics on social vulnerability. This analysis helps us understand how the percentage of the population aged 65 and older affects overall social vulnerability, contributing to more informed community resilience and public health planning.
+
+```{r}
+library(ggplot2)
+
+
+CA_SVI <- subset(CA_SVI,  EP_AGE65!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEMES!= -999 )
+
+
+
+ggplot(CA_SVI, aes(y = EP_AGE65, x = RPL_THEMES)) +
+  geom_point(color='red') +
+  labs(x = "Percent of population Age 65 or older", x = "RPL_THEMES(Total SVI)") +
+  ggtitle("Social Vulnerability vs Hispanic Population")
+
+
+```
+
+This graph shows the relationship between total SVI score (RPL_THEMES) and percent of population Age 65 or Older (EP_AGE65). In this scatter plot, data points are mostly concentrated along the x-axis (RPL_THEMES). This concentration near the x-axis suggests that there is little variation in the Total SVI (RPL_THEMES) with respect to the percentage of the population aged 65 or older (EP_AGE65).
+
+The horizontal distribution of data points indicates that there is no strong linear correlation between EP_AGE65 and RPL_THEMES. In other words, changes in the percentage of the population aged 65 or older do not appear to correspond to significant changes in the Total SVI score.
+
+This could indicate that other factors or variables may be influencing the Total SVI more significantly than age alone. The relationship might be more complex or influenced by multiple factors.
+
+The lack of a clear linear relationship between age and Total SVI suggests that age alone may not be a strong predictor of social vulnerability in this context. This insight is valuable for public health officials and emergency planners, as it may guide resource allocation and intervention strategies that consider a broader set of determinants.
+
+
+
+
+##### Scatterplots #3
+
+"EP_NOHSDP" vs "RPL_THEME3" unveils the dynamic link between education and social vulnerability. This analysis elucidates how the percentage of the population with no high school diploma influences vulnerability related to "Race and Ethnicity" (RPL_THEME3)
+```{r}
+
+library(ggplot2)
+
+
+CA_SVI <- subset(CA_SVI,  EP_NOHSDP!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEME3!= -999 )
+
+
+ggplot(CA_SVI, aes(x = EP_NOHSDP, y = RPL_THEME3, color=COUNTY)) +
+  geom_point(color='blue') +
+  labs(x = "  Percent of the population with no high school diploma", y = "RPL_THEME3(Race and Ethnicity )") +
+  ggtitle("Scatterplot of Education and SVI")
+
+
+
+
+```
+
+In this scatter plot, most data points are concentrated near the y-axis, particularly up to 20% of "Percent of the population with no high school diploma" (EP_NOHSDP). This concentration suggests that there is little variation in the "RPL_THEME3" (Race and Ethnicity) score in this range of EP_NOHSDP.
+
+The scatter plot demonstrates that there isn't a linear relationship between EP_NOHSDP and RPL_THEME3. Instead, it shows a clear threshold effect or an abrupt change in RPL_THEME3 scores once EP_NOHSDP crosses the 20% mark.
+This pattern suggests that up to 20% of the population with no high school diploma, the impact on RPL_THEME3 is relatively minimal. However, beyond this threshold, there appears to be a significant increase in social vulnerability related to "Race and Ethnicity" (RPL_THEME3).
+
+The threshold effect implies that a specific level of education attainment (or lack thereof) may significantly influence the social vulnerability as measured by RPL_THEME3. It's essential to understand the reasons behind this threshold and how it relates to the SVI's focus on "Race and Ethnicity."
+
+For policymakers and public health officials, this graph highlights the importance of focusing on interventions and support programs for populations with educational attainment levels below 20%, as these individuals may face a different level of vulnerability related to race and ethnicity compared to those above the threshold.
+
+
+##### Scatterplots #4
+"EP_HISP" vs "RPL_THEME1" uncovers the influence of the Hispanic population on socioeconomic vulnerability. This analysis provides critical insights into how changes in the percentage of Hispanic residents impact the broader socioeconomic aspect of social vulnerability.
+```{r}
+library(ggplot2)
+
+CA_SVI <- subset(CA_SVI, EP_HISP != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME1 != -999)
+ggplot(CA_SVI, aes(x = EP_HISP, y = RPL_THEME1)) +
+  geom_point(color = 'skyblue') +
+  labs(x = "Percentage of Hispanic population", y = "RPL_THEME1 (Socioeconomic Status)") +ggtitle("Race VS RPL_THEME1(socioeconmic Status)")
+
+```
+
+The scatter plot reveals a distinct pattern in the data distribution. Up to around 60% of the Hispanic population (EP_HISP), there is no clear correlation between EP_HISP and RPL_THEME1. Data points appear to be randomly distributed.
+
+Beyond the 65% mark of EP_HISP, there is a noticeable shift in the data distribution. Most data points cluster between SVI of 0.75 and 1, indicating a more consistent relationship between EP_HISP and RPL_THEME1.
+
+This pattern hints at a potential threshold effect, where the Hispanic population percentage may not significantly impact socioeconomic status (RPL_THEME1) below a certain level, but above this threshold, there is a more consistent impact.
+
+For policymakers and public health officials, this graph suggests that interventions and policies may have a more pronounced effect on socio-economic status if the Hispanic population is above 65%.
+
+
+
+### Correlation Heatmap
+
+```{r}
+library(dplyr)
+# creating correlation matrix
+correlation_matrix <- cor(CA_SVI[, c("EPL_POV150", "EPL_UNEMP", "EPL_HBURD", "EP_NOHSDP", "EPL_UNINSUR","EP_AGE65", "EPL_AGE17", "EPL_DISABL", "EPL_SNGPNT", "EPL_LIMENG","EPL_MINRTY", "EPL_MUNIT", "EPL_MOBILE", "EPL_CROWD", "EPL_NOVEH","EP_HISP", "EP_ASIAN", "EP_AIAN","RPL_THEME1", "RPL_THEME2", "RPL_THEME3", "RPL_THEME4")])
+
+correlation_melted <- melt(correlation_matrix)
+
+ggplot(correlation_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "red", high = "green") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # Rotate x-axis labels
+  labs(title = "Correlation Heatmap of SVI Variables and Demographics")
+
+
+```
+
+The correlation matrix shows the strength and direction of the relationship between each pair of variables. 1 indicates a perfect positive correlation (Green), a correlation coefficient of -1 indicates a perfect negative correlation (RED), and a correlation coefficient of 0 indicates no correlation (Orange).
+
+As we can see, most of the variables have no correlation, close to 0. But there are some variables with little positive Correlation. For example, EPL_POV150 and EPL_NOHBURD have some positive correlation with most of the variables. Understanding these positive correlations can inform policy and intervention strategies.
+
+There are also some strong negative correlations between some of the variables. For example, AGE_65 is negatively correlated with RPL_THEME1 and RPL_THEME3. The negative correlation suggests that there is an inverse relationship between the percentage of elderly residents and the socio-economic status (RPL_THEME1) and the vulnerability related to race and ethnicity (RPL_THEME3). As the elderly population increases, these aspects of social vulnerability tend to decrease.
+
+EP_ASIAN is litte negatively correlated with RPL_THEME1 and RPL_THEME2. This suggests that as the percentage of the Asian population (EP_ASIAN) increases in a particular area, the RPL_THEME1 and RPL_THEME2 scores tend to decrease.
+
+Like the previous scenario with the elderly population, a higher percentage of Asian residents may act as protective factors against certain social vulnerabilities. This could be due to factors such as economic stability, community support, and educational attainment.
+
+### Additional Figures
+
+#### Charts {.tabset .tabset-fade .tabset-pills}
+
+##### Chart of Mean SVIs
+
+```{r}
+
+
+CA_SVI <- subset(CA_SVI, RPL_THEMES != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME1 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME2 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME3 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME4 != -999)
+
+#this removed 65 rows
+
+#lets find the avg SVI scores by theme and by county to make into a table
+county_svi2 <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(
+    mean_SVI = mean(RPL_THEMES),
+    mean_RPL_THEME1 = mean(RPL_THEME1),
+    mean_RPL_THEME2 = mean(RPL_THEME2),
+    mean_RPL_THEME3 = mean(RPL_THEME3),
+    mean_RPL_THEME4 = mean(RPL_THEME4)
+  ) %>%
+  ungroup()
+
+county_svi2_sorted <- county_svi2 %>%
+  arrange(desc(mean_SVI))
+
+top_10_vulnerable_counties <- head(county_svi2_sorted, n = 10)
+
+library(knitr)
+library(knitr)
+
+
+custom_labels <- c("County", "Overall SVI", "Theme 1", "Theme 2", "Theme 3", "Theme 4")
+
+table_top_10_vulnerable <- kable(top_10_vulnerable_counties, format = "html", 
+                                 caption = "Top 10 Most Vulnerable Counties",
+                                 col.names = custom_labels)
+table_top_10_vulnerable
+
+```
+
+This chart depicts the top ten most vulnerable counties ranked by the **MEAN** of `RPL_THEMES` or Overall SVI. The mean of each theme's SVI is also displayed at the county level. This chart identifies the most vulnerable tracts, as well as enables a comparison of how the overall SVI compares to the specific themes. This can help identify if there is a higher specific type of vulnerability within a county, say one is less transit friendly, or one has more dense housing types, etc. From the chart, it is apparent that the counties' have different SVI scores depending on themes, but they do not differ greatly. 
+
+A correlation matrix can be viewed to compare how these themes all relate to the overall SVI in the next tab. 
+
+
+
+##### Correlation between SVI and Themed SVI
+
+```{r}
+library(ggplot2)
+library(ggcorrplot)
+
+CA_SVI <- subset(CA_SVI, RPL_THEMES != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME1 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME2 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME3 != -999)
+CA_SVI <- subset(CA_SVI, RPL_THEME4 != -999)
+
+#this removed 65 rows
+
+# Select the relevant columns for correlation
+correlation_data <- county_svi2 %>%
+  select(mean_SVI, mean_RPL_THEME1, mean_RPL_THEME2, mean_RPL_THEME3, mean_RPL_THEME4)
+
+# Calculate the correlation matrix
+correlation_matrix_counties <- cor(correlation_data)
+
+ggcorrplot(correlation_matrix_counties, 
+           type = "lower", 
+           lab = TRUE, 
+           method = "square",  # or method = "circle"
+           title = "Correlation Plot of Themes with Mean_SVI",
+           ggtheme = ggplot2::theme_minimal()
+           )
+
+```
+
+This correlation matrix identifies the correlations between mean SVI theme scores and the mean Overall SVI for the top ten most vulnerable counties in California. 
+Here it is seen that `Theme 1` and `Theme 2` have the strongest correlation to the `Overall SVI`. This is an interesting observation, and it could help guide future research or recommendations as to which SVI score to use when responding to emergency situations within each tract or county. This matrix also shows the correlation between the themes. It is seen that there is correlation between them, ranging from weak (0.28 `Theme 3` & `Theme 4`) to strong (0.76 `Theme1` & `Theme 2`) which could also inform how these demographic variables might have overlap/similar effects on social vulnerability. Diving deeper into the relationship of the variables of strongly correlated themes (the demographic variables that make up the themes) could be interesting analysis to conduct. 
+
+##### Mean SVI & Demographics
+
+```{r}
+library(ggplot2)
+library(ggcorrplot)
+
+#lets find the avg SVI scores by theme and by county to make into a table
+county_svi3 <- CA_SVI %>%
+  group_by(COUNTY) %>%
+  summarize(
+    mean_SVI = mean(RPL_THEMES),
+    mean_RPL_THEME1 = mean(RPL_THEME1),
+    mean_RPL_THEME2 = mean(RPL_THEME2),
+    mean_RPL_THEME3 = mean(RPL_THEME3),
+    mean_RPL_THEME4 = mean(RPL_THEME4),
+    mean_EPL_MINRTY = mean(EPL_MINRTY),
+    mean_EP_AGE65 = mean(EP_AGE65),
+    mean_EP_POV150 = mean(EP_POV150),
+    mean_EPL_UNEMP = mean(EPL_UNEMP),
+    mean_EPL_UNINSUR = mean(EPL_UNINSUR),
+    mean_EPL_DISABL = mean(EPL_DISABL),
+    mean_EPL_CROWD = mean(EPL_CROWD),
+    mean_EPL_NOVEH = mean(EPL_NOVEH)
+  
+  ) %>%
+  ungroup()
+
+# Select the relevant columns for correlation
+correlation_data2 <- county_svi3 %>%
+  select(mean_SVI, mean_RPL_THEME1, mean_RPL_THEME2, mean_RPL_THEME3, mean_RPL_THEME4, mean_EPL_MINRTY, mean_EP_AGE65,
+         mean_EP_POV150, mean_EPL_UNEMP, mean_EPL_UNINSUR, mean_EPL_DISABL,   mean_EPL_CROWD, mean_EPL_NOVEH)
+
+# Calculate the correlation matrix
+correlation_matrix_counties_demog <- cor(correlation_data2)
+loadPkg("corrplot")
+
+
+# Assuming you have already created your correlation plot
+corrplot(correlation_matrix_counties_demog, method = "square", type = "upper", col = colorRampPalette((c("#B2182B", "#FDDBC7", "#2166AC")))(100))
+
+```
+
+This figure shows the correlation between demographic variables selected in the analysis, however this is not a holistic look, more fine analysis should be conducted to examine the specific interactions of demographic variables that are significant versus those that are not significant by using linear regression models to select variables to compare. Here it is possible to see each individual SVI (Overall and Themes), as well as the demographic variables that make up these themes. Obviously, we are not interested in direct relationships like how `Percent Minority` correlates with the `Theme 3` score. Instead, this can allow observations about how **UNRELATED** variables affect an SVI score, such as how `Percent of People in Poverty` impacts all of the SVI scores highly,  but seemingly the `Percent Population with Disability` seems to have less of an impact on the scores across themes. 
+
+Additionally, it also enables thr visualization of the correlation between demographics, which could help identify groups that could be most at risk. This can be seen with the high correlation between the `Percent Age 65 and Over` and `Percent Minority` variables. This informs us about California's demographics, and what kind of overlapping demographic groups might need assistance in the case of an emergency. 
+
+### Hypothesis Testing
+
+#### Hypothesis Tests {.tabset .tabset-fade .tabset-pills}
+
+##### RPL_THEMES and RPL_THEME1
+
+**RPL_THEMES and RPL_THEME1**
+
+```{r}
+CA_SVI <- subset(CA_SVI,  RPL_THEME1!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEMES!= -999 )
+
+t_test_result1 <- t.test(CA_SVI$RPL_THEMES, CA_SVI$RPL_THEME1)
+
+print(t_test_result1)
+
+```
+
+**Null hypothesis** ($H_0$): The means of `RPL_THEMES` and `RPL_THEME1` are the same
+
+**Alternative hypothesis** ($H_1$): The means variables `RPL_THEMES` and `RPL_THEME1` are not the same
+
+**Significance level** ($\alpha$): 0.05
+
+**\(p\)-value**: <2e-16
+
+**Mean of Overall SVI**: 0.588
+
+**Mean of Theme 1**: 0.547
+
+**Results**: Overall SVI is between 0.0329 and 0.0500 higher than the mean of Socioeconomic Status theme
+The p-value < $\alpha$ so we reject the null hypothesis ($H_0$). There is evidence to support that the variables `RPL_THEMES` and `RPL_THEME1` have different means. 
+
+
+##### RPL_THEMES and RPL_THEME2
+
+**RPL_THEMES and RPL_THEME2**
+
+```{r}
+CA_SVI <- subset(CA_SVI,  RPL_THEME2!= -999 )
+
+t_test_result2 <- t.test(CA_SVI$RPL_THEMES, CA_SVI$RPL_THEME2)
+
+# Print the results
+print(t_test_result2)
+```
+**Null hypothesis** ($H_0$): The means of `RPL_THEMES` and `RPL_THEME2` are the same
+
+**Alternative hypothesis** ($H_1$): The means variables `RPL_THEMES` and `RPL_THEME2` are not the same
+
+**Significance level** ($\alpha$): 0.05
+
+**\(p\)-value**: <2e-16
+
+**Mean of Overall SVI**: 0.588
+
+**Mean of Theme 2**:  0.538
+
+**Results**: Overall SVI is between 0.0418 and 0.0584 higher than the mean of Household Characteristics theme. The p-value < $\alpha$ so we reject the null hypothesis ($H_0$). There is evidence to support that the variables `RPL_THEMES` and `RPL_THEME2` have different means. 
+
+
+##### RPL_THEMES and RPL_THEME3
+
+**RPL_THEMES and RPL_THEME3**
+
+```{r}
+CA_SVI <- subset(CA_SVI,  RPL_THEME3!= -999 )
+
+t_test_result3 <- t.test(CA_SVI$RPL_THEMES, CA_SVI$RPL_THEME3)
+
+# Print the results
+print(t_test_result3)
+```
+**Null hypothesis** ($H_0$): The means of `RPL_THEMES` and `RPL_THEME3` are the same
+
+**Alternative hypothesis** ($H_1$): The means variables `RPL_THEMES` and `RPL_THEME3` are not the same
+
+**Significance level** ($\alpha$): 0.05
+
+**\(p\)-value**: <2e-16
+
+**Mean of Overall SVI**: 0.588
+
+**Mean of Theme 3**:  0.720
+
+**Results**: Overall SVI is between 0.138 and 0.124 *lower* than the mean of Ethnic Minority Status. The p-value < $\alpha$ so we reject the null hypothesis ($H_0$). There is evidence to support that the variables `RPL_THEMES` and `RPL_THEME3` have different means. 
+
+##### RPL_THEMES and RPL_THEME4
+
+**RPL_THEMES and RPL_THEME4** 
+
+```{r}
+CA_SVI <- subset(CA_SVI,  RPL_THEME4!= -999 )
+
+t_test_result4 <- t.test(CA_SVI$RPL_THEMES, CA_SVI$RPL_THEME4)
+
+# Print the results
+print(t_test_result4)
+```
+
+**Null hypothesis** ($H_0$): The means of `RPL_THEMES` and `RPL_THEME4` are the same
+
+**Alternative hypothesis** ($H_1$): The means variables `RPL_THEMES` and `RPL_THEME3` are not the same
+
+**Significance level** ($\alpha$): 0.05
+
+**\(p\)-value**: <2e-16
+
+**Mean of Overall SVI**: 0.588
+
+**Mean of Theme 4**:  0.577
+
+**Results**: Overall SVI is between 0.0028 and 0.0195 higher than the mean of  Housing Type & Transportation. The p-value < $\alpha$ so we reject the null hypothesis ($H_0$). There is evidence to support that the variables `RPL_THEMES` and `RPL_THEME4` have different means. 
+
+##### Conclusion
+This was an interesting analysis because it illuminated that it is likely that`RPL_THEME3`: Ethnic Minority Status brings up the Sum SVI score, while the other three themes' means are lower than overall SVI. It would be interesting analysis to identify those census tracts that have the highest `RPL_THEME3` scores and do further quantitative and qualitative analysis.
+
+
+## Results
+The results of the analysis may have shown little *new* correlation between variables and SVI themes, but this is still an interesting finding. 
+
+While there is variation between the means of SVI scores, they are still very similar and close in range. This would be interesting to test if this is true across all states or just California, a high risk state. Additionally, it could benefit future analysis to filter the dataset to most at risk or areas of particular interest to compare the means of SVI themes across those areas.  
+
+Additionally, these results could indicate that the SVI compiled by the CDC provides a comprehensive and holistic representation of vulnerability for each theme. Nothing really gets left out, each theme addresses important vulnerabilities. This is a fair assumption considering the SVI is carefully crafted to ensure that each demographic group is considered and covered in the emergency response efforts. 
+
+In this study, we have employed various data visualization techniques, including Maps, Histograms, and Scatterplots, to present the social vulnerability data. A discernible insight derived from our visualizations is the enhanced efficacy of utilizing maps for visualizing the SVI dataset, given its inherently spatial nature. Our analysis has yielded informative visual representations that can empower decision-makers to make more objective resource allocation decisions based on identified needs.
+
+## Future Work
+
+
+**Aggregate data by county/regions**
+
+Following the project presentation, the group was able to further filter the data and aggregate by county or top ten most vulnerable tracts. Any further filtering or grouping of the dataset by specific locations/regions/areas could provide helpful insights into where to respond to different kinds of emergencies and where different kinds of vulnerability is distributed. 
+
+**Find spatial autocorrelation of demographic variables**
+
+It could be interesting to map and visualize other correlation using spatial methods, such as utilizing neighborhood comparisons such as Average Nearest Neighbor, to identify areas of high risk in comparison to those areas around them. This type of analysis could also help identify areas of high SVI risk **AND** have significant demographic trends. 
+
+**Find correlation with other datasets **
+
+Since we did not find any significant correlation in the current dataset we can work on finding correlations with other datasets. This can provide valuable insights into social vulnerability factors and their relationships with various other factors. A few of the datasets that we could work on with the SVI dataset are: COVID-19 dataset, the Natural Disasters dataset related to wildfire and earthquake, Economic and Income Datasets etc 
+
+**Predict which communities are vulnerable after natural disaster/disease outbreak**
+
+We could use the SVI and predictive modelling techinques in disaster preparedness and response, through this we can better allocate resources, save lives, and reduce the impact of disasters and disease outbreaks on vulnerable communities. Additionally, this approach can help us to prioritize interventions and support the goal of achieving equitable disaster resilience.
+
+**Predict future SVI across themes based on projected demographic data**
+
+We could use the SVI dataset from previous years to build a predictive model that can be used to determine the SVI score for different regions. A predictive model, such as linear regression or machine learning, can be built, trained, and validated to forecast future SVI scores. We can also use feature engineering to capture demographic trends effectively.
+
+

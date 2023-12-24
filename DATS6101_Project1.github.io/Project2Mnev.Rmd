@@ -1,0 +1,1652 @@
+---
+title: "Project 2: Write Up"
+author: "Likhitha, Paulina, Shrihan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    code_folding: hide
+    number_sections: false
+    toc: yes
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning=FALSE)
+
+```
+
+```{r, include=FALSE}
+# Load packages
+library(ezids)
+library(tigris)
+library(sf)
+library(here)
+library(dplyr)
+library(leaflet)
+library(reshape2)
+library(tmap)
+library(viridis)
+library(stargazer)
+library(maps)
+library(ggplot2)
+library(extrafont)
+library(usmap)
+library(plotly)
+library(corrplot)
+library(caret)
+library(car)
+library(glmnet)
+library(rpart)
+loadPkg("rattle") 
+
+library(randomForest)
+library("rattle")
+library(rpart)
+library(rpart.plot)
+
+
+#font_import(pattern = "Avenir")
+loadfonts()
+theme_set(theme_minimal(base_family = "Avenir"))
+
+```
+
+## Introduction
+
+Building off of the first project's exploratory data analysis findings, this project will aim to produce regression and machine learning modeling. From the findings of the first project, several conclusions were drawn that shaped the scope of this project:
+
+The results of the analysis may have shown little *new* correlation between variables and SVI themes, but this is still an interesting finding. 
+
+**1**: The means of SVI scores across themes are similar and close in range.
+
+**2**: Each theme addresses important vulnerabilities.
+
+**3**: Little new correlation was found.
+
+Thus, this project brings in two additional datasets to examine new correlations and identify if they could be effective predictors in SVI scores. 
+
+During the project's initial phase, limited novel correlations between demographic variables and SVI themes were identified at the census tract level. There were no demographic variables that were left out of SVI themed groupings, thus indicating that the CDC compiled SVI is a well represented and holistic representation of vulnerability assessment. In the second phase of the project, the goal is to utilize the themed and overall SVI scores in combination with additional datasets to see if predictions can be made about census tract or county vulnerability scores. Specifically, correlations between COVID-19 data, median income, and the SVI dataset will be examined. The objective extends to the development of predictive models designed to pinpoint vulnerable communities in events of external stressors (such as a disease outbreak). The temporal scale of the dataset examines SVI scores prior to and after the COVID-19 pandemic. 
+
+### Research Topic 
+
+**SMART Questions:**
+
+**1**: Can we explore the presence of correlations between COVID-19 mortality and elevated Social Vulnerability Index (SVI) scores across SVI themes?
+
+**2**: Is it possible to assess the influence of COVID-19 on SVI scores (before and after the pandemic)?
+
+**3**: Does median income impact the SVI scores in a significant way? 
+
+**4**: Can we develop predictive models to identify vulnerable communities following external stressors? 
+
+**5**: Which features are imporant/significant in predicting SVI? 
+
+The focus of the economic variable dataset use will be to add in another variable reported by the census as a metric of economic status. Then, it will be combined with other variables selected through feature selection to create a logistic regression model. This model will then be used to create a classification tree algorithm that will predict if a tract is Low risk, Medium-Low risk, Medium-High risk, or High risk. By breaking it down into a category with 4 levels, it can help officials, planners, and first responders focus attention to those classified as the highest risk, as well as see the demographic breakdown at a quick glance from the nodes on the tree. 
+
+The primary objective of utilizing the COVID dataset is to incorporate supplementary variables associated with COVID-19, encompassing metrics such as cases and deaths, into the Social Vulnerability Index (SVI) dataset. These additional variables are crucial indicators of the pandemic's extent and impact. Through meticulous feature selection on the merged dataset, significant factors will be identified. Subsequently, these selected features will be employed to construct a robust logistic regression model capable of predicting the SVI score. This analysis holds the potential to assist policymakers, healthcare professionals, and emergency responders in efficiently allocating resources by precisely identifying areas at the highest risk of COVID-19 transmission and its associated challenges.
+
+
+## Data Set and Variables 
+
+### SVI Data 
+
+The SVI is comprised of 5 total SVI calculations: 4 thematic and 1 overall summary composed by the sum of the themes. 
+
+It is constructed by selecting the specific indicator variables within different themes that are chosen to represent the various aspects of vulnerability, enabling this project to examine if any themes leave out variable that could be important. Then Census tracts are ranked within each state, as well as against other states, creating tract rankings ranging from 0 to 1, with higher values indicating greater vulnerability.
+The CDC states: "For each tract, we generated its percentile rank among all tracts for 1) the 16 individual variables, 2) the four themes, and 3) its overall position."
+
+Then, these percentiles were summed for each of the four themes, and then ordered to determine theme-specific percentile rankings.
+
+### Spatial Data
+
+The geographic scale of the data is limited to California census tracts, which allows a detailed analysis of over 9,000 census tracts, hopefully enabling more tailored actions and responses. CA is a state that is prone to natural disasters such as earthquakes, wildfires, and has a very high population, making it an important case study. 
+
+### Economic Data 
+
+The economic data used in this project is **Median Income of Households in 2019** acquired from the [US Census Bureau](https://data.census.gov/table/DECENNIALDPVI2020.DP3?q=per%20capita%20income%20by%20census%20tract) for the California Census Tract level. 
+
+### COVID Data
+
+The COVID-19 data used in this project is acquired from the [Roche Data Science Coalition (RDSC)](https://usafacts.org/visualizations/coronavirus-covid-19-spread-map/) for all 50 states. 
+
+### Cleaning the Data
+
+**Information on cleaning the SVI dataset can be found in Project 1 write-up**
+
+```{r}
+econ <- read.csv("ACSDT5Y2020.B19013-Data.csv")
+econ <- subset(econ, select = c(GEO_ID, NAME,B19013_001E))
+econ <- econ[-c(1, 2), ] 
+#rename columns
+names_to_change <- c("GEO_ID", "NAME", "B19013_001E")
+new_names <- c("GEO_ID", "tract", "income")
+econ <- setNames(econ, new_names)
+# edit GEO_ID to isolate just the number after 1400000US06001400100
+econ$GEO_ID <- sub(".*US0*(\\d+)", "\\1", econ$GEO_ID)
+```
+
+
+```{r}
+
+SVI_Data <- read.csv("SVI_2020_US.csv")
+us_cases <- read.csv('USAFacts/confirmed-covid-19-cases-in-us-by-state-and-county.csv')
+us_deaths <- read.csv('USAFacts/confirmed-covid-19-deaths-in-us-by-state-and-county.csv')
+
+```
+
+## Data Analysis {.tabset .tabset-fade .tabset-pills}
+
+### Economic 
+
+#### Economic Data EDA and Modeling {.tabset .tabset-fade .tabset-pills}
+
+##### EDA 
+
+Data was cleaned and formatted prior to analysis. 
+
+```{r, warning=FALSE}
+#Import SVI
+SVI_Data <- read.csv("SVI_2020_US.csv")
+Clean_data <- subset(SVI_Data, select = c(ST,STATE,ST_ABBR,STCNTY,COUNTY,FIPS,LOCATION,AREA_SQMI,EPL_POV150,	EPL_UNEMP,	EPL_HBURD,	EPL_NOHSDP,	EPL_UNINSUR,	SPL_THEME1,	RPL_THEME1,	EPL_AGE65,	EPL_AGE17,	EPL_DISABL,	EPL_SNGPNT,	EPL_LIMENG,	SPL_THEME2,	RPL_THEME2,	EPL_MINRTY,	SPL_THEME3,	RPL_THEME3, E_MINRTY, EP_HISP, EP_ASIAN, EP_AIAN, EPL_MUNIT,	EPL_MOBILE,	EPL_CROWD,	EPL_NOVEH,	EPL_GROUPQ,	SPL_THEME4,	RPL_THEME4,	SPL_THEMES,	RPL_THEMES, E_AGE65, EP_POV150, EP_AGE65, EP_NOHSDP
+) )
+
+CA_SVI <- subset(Clean_data, ST_ABBR == "CA")
+CA_SVI <- subset(CA_SVI,  RPL_THEMES!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEME1!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEME2!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEME3!= -999 )
+CA_SVI <- subset(CA_SVI,  RPL_THEME4!= -999 )
+
+#Join SVI to econ based on GEO_ID
+svi_econ <- merge(econ, CA_SVI, by.x = "GEO_ID", by.y = "FIPS", all.x = TRUE, all.y = TRUE)
+
+#count outliers 
+total_na_count <- sum(is.na(svi_econ))
+#print(total_na_count)
+#remove NA
+svi_econ <- na.omit(svi_econ)
+svi_econ <- svi_econ[svi_econ$income != "-", , drop = FALSE]
+svi_econ$income <- as.numeric(as.character(svi_econ$income))
+svi_econ <- na.omit(svi_econ)
+
+
+```
+
+**Histogram of Median Income** 
+```{r}
+ggplot(svi_econ, aes(x = income)) +
+  geom_histogram(binwidth = 1000, fill = "seagreen", color = "palegreen3", alpha = 0.7) +
+  labs(title = "Histogram of Median Income of Census Tracts in 2019", x = "Meidan Income", y = "Frequency")
+```
+
+From this plot, we can see that the `income` data is skewed right, there are more lower median incomes. For the purposes of classifying data, this distribution does not necessarily need to be normally distributed, as long as there are enough variables to represent each target class.
+
+Looking back at our `RPL_THEMES`, we can observe its distribution as well.
+
+```{r}
+
+ggplot(svi_econ, aes(x = RPL_THEMES)) +
+  geom_histogram(binwidth = 0.01, fill = "tomato1", color = "tomato4", alpha = 0.7) +
+  labs(title = "Histogram of SVI Score of Census Tracts in 2020", x = "SVI Score", y = "Frequency")
+
+```
+
+It is seen that the distribution is skewed left. 
+
+**Map** 
+
+In the original project variables were mapped by county. It is possible to map the the income distribution by county to get a visual understanding of its distribution. 
+
+```{r maps, include=FALSE}
+#for mapping, convert CA_SVI to a Simple Features (map object)
+library(sf)
+library(tigris)
+library(dplyr)
+library(viridis)
+
+#Load 2020 Census Tract shapefile for California
+ca_tracts <- tracts(state = "CA", year = 2020)
+
+ca_tracts$GEOID <- sub("^\\d", "", ca_tracts$GEOID)
+
+#Join CA_SVI and ca_tracts based on FIPS and GEOID
+svi_econ_map <- inner_join(svi_econ, ca_tracts, by = c("GEO_ID" = "GEOID"))
+
+econmap <- st_as_sf(svi_econ_map)
+
+```
+
+```{r mapping}
+map1 <- ggplot(data = econmap) +
+  geom_sf(aes(fill = income)) +
+  labs(title = "Median Income by Census Tract: 2019",
+       fill = "Income in Dollars") +
+  scale_fill_viridis_c() +
+  theme_void() +
+  theme(text = element_text(family = "Avenir"))
+
+map1
+
+
+```
+
+It is seen that the majority of census tracts fall in a lower range, with a clustering of higher incomes in the coastal region in the middle of the state. 
+
+
+##### SVI & Income 
+
+Examining income's effect on the SVI score can be done using linear regression to interpret these effects.
+
+```{r}
+library(broom)
+library(knitr)
+
+# Scale or normalize the variables
+svi_econ$income_scaled <- svi_econ$income / 100000  # Scale income to be between 0 and 1
+
+model_econ <- lm(RPL_THEMES ~ income_scaled, data = svi_econ)
+
+# Tidy up the results using broom
+tidy_results <- tidy(model_econ)
+
+#summary(model_econ)
+# Print the formatted table
+kable(tidy_results, format = "markdown")
+
+
+```
+
+**Income_scaled (-0.568704):** The estimated change in RPL_THEMES for a one-unit increase in income_scaled (a one unit increase is an increase in $100,000). The coefficient is negative, suggesting a negative relationship between income_scaled and RPL_THEMES.
+
+**F-statistic (15250):** A test of the overall significance of the model. It compares the fit of the intercept-only model with the fit of the given model. A higher F-statistic and a lower p-value (< 0.05) suggest that at least one variable is significantly related to the dependent variable.
+
+**P-value (< 2.2e-16):** The p-value associated with the F-statistic is very close to zero, indicating that the overall model is statistically significant.
+
+**Conclusion:** The results indicate that income (measured by median income of census tracts) is likely a good predictor of SVI risk scores, as it is statistically significant. This answers the SMART question regarding if median income is a statistically significant variable and if it has any significant impact on SVI scores. 
+
+
+
+##### Feature Selection {.tabset .tabset-fade .tabset-pills}
+
+To answer the SMART question regarding which features are significant in predicting and modeling SVI, feature selection algorithms were used. Numerous methodologies were used to select relevant and significant features for the linear regression and classification model. This part of the project will walk through this selection process. 
+
+###### Correlation Matrix
+
+**Highly correlated variables**: 
+```{r corr matrix}
+# Convert selected columns to numeric
+svi_select <- mutate_all(svi_econ, as.numeric)
+
+# Drop columns with NA values
+svi_select <- svi_select %>%
+  select(everything(), -where(~any(is.na(.))))
+
+# Rename multiple columns simultaneously
+
+colnames(svi_select)[colnames(svi_select) == 'RPL_THEMES'] <- 'SVI'
+colnames(svi_select)[colnames(svi_select) == 'EPL_POV150'] <- 'Poverty'
+colnames(svi_select)[colnames(svi_select) == 'EPL_HBURD'] <- 'Housing_Cost_Burdened'
+colnames(svi_select)[colnames(svi_select) == 'EPL_NOHSDP'] <- 'No_Diploma'
+
+# Create the correlation matrix
+cor_matrix <- cor(svi_select, use = "complete.obs")
+
+# Variable of interest
+target_variable <- "SVI"
+# Extract the correlations with the target variable
+cor_with_target <- cor_matrix[target_variable, ]
+# Select variables with high correlation 
+high_correlation_vars <- names(cor_with_target[abs(cor_with_target) > 0.65])
+
+# Print the variables with high correlation
+print(high_correlation_vars)
+
+# Select the relevant columns for correlation
+correlation_matrix1 <- svi_select %>%
+  select(SVI, Poverty, Housing_Cost_Burdened, No_Diploma, income_scaled)
+
+# Calculate the correlation matrix
+correlation_matrix <- cor(correlation_matrix1)
+
+loadPkg("corrplot")
+
+corrplot(correlation_matrix, method = "square", type = "lower", col = colorRampPalette((c("#2166AC","#FDDBC7","#B2182B")))(100))
+
+
+```
+
+This assessment utilized a correlation matrix to identify which variables have a strong relationship with the target variable `SVI`. The threshold for what counted as a significant relationship was set to 0.65. 
+
+From assessing correlation of variables, only 4 variables: `income_scaled`, `EPL_POV150`, `EPL_HBURD`, `EPL_NOHSDP` had a correlation of 0.65  or higher with the `RPL_THEMES` variable. This might suggest that these variables are likely predictors of the outcome SVI score, but it is important to assess multicolinearity. 
+
+**Residual plots:**
+
+The residuals plots appear to have a normal distribution. It is also important to assess the variables using VIF assessment to address multicolinearity. 
+
+```{r}
+predict_svi <- svi_econ %>%
+  select(RPL_THEMES, income_scaled, EPL_POV150, EPL_HBURD, EPL_NOHSDP)
+
+colnames(predict_svi)[colnames(predict_svi) == 'RPL_THEMES'] <- 'SVI'
+colnames(predict_svi)[colnames(predict_svi) == 'EPL_POV150'] <- 'Poverty'
+colnames(predict_svi)[colnames(predict_svi) == 'EPL_HBURD'] <- 'Housing_Cost_Burdened'
+colnames(predict_svi)[colnames(predict_svi) == 'EPL_NOHSDP'] <- 'No_Diploma'
+
+
+
+model <- lm(SVI ~ ., data = predict_svi)
+
+# Check the distribution of residuals
+residuals <- residuals(model)
+
+# Residual Plot
+par(mfrow = c(2, 2))
+#plot(model)
+
+# Q-Q Plot
+qqnorm(residuals)
+qqline(residuals)
+
+
+# Kernel Density Plot
+plot(density(residuals))
+```
+
+
+**VIF Assessment**
+
+```{r}
+model_test <- glm(SVI ~ ., data = predict_svi)
+summary(model_test)
+
+data.frame(vif(model_test))
+
+```
+
+A high VIF value could indicate that there is multicolinearity present. VIF values above 5 are considered moderately high, and values above 10 are recommended to not be used. From this analysis, it is seen that VIF values all below 5. All 4 variables were selected from this process.
+
+###### Stepwise 
+
+The stepwise feature selection was ran on the datatset in both directions. 
+
+**Initial Model**
+```{r}
+# Create the initial model
+initial_model <- lm(RPL_THEMES ~ income_scaled + EPL_POV150 +EPL_UNINSUR +EPL_AGE65 +EPL_AGE17+ EPL_DISABL+ EPL_SNGPNT +EPL_LIMENG + EPL_MINRTY +EPL_UNEMP + EPL_HBURD + EPL_NOHSDP, data = svi_econ)
+
+# Perform stepwise selection (both directions)
+stepwise_model <- step(initial_model, direction = "both")
+
+```
+
+**Stepwise Results**:
+```{r}
+# Display the summary of the selected model
+summary(stepwise_model)
+```
+
+**Results**:
+All of the coefficients are determined to be significant. The output suggests that the best model, according to AIC, includes all the features. Removing any single feature did not lead to a significant improvement in AIC. The model seems to be highly significant, and the included variables all have statistically significant coefficients. The model also explains a substantial portion of the variability in the dependent variable (RPL_THEMES), as indicated by the high R-squared value of **0.9067**.
+
+###### LASSO
+ 
+[Lasso analysis] (https://www.statisticshowto.com/lasso-regression/) is used for variable selection and it introduces a penalty term to the traditional linear regression objective function. It does this by giving a penalty to the less important features, making their influence smaller or even zero to filter out the noise and focus on the most crucial things that affect the target variable. 
+
+```{r LASSO}
+selected_columns <- c("RPL_THEMES", "income_scaled", "EPL_POV150", "EPL_UNINSUR", 
+                       "EPL_AGE65", "EPL_AGE17", "EPL_DISABL", 
+                       "EPL_SNGPNT", "EPL_LIMENG", "EPL_MINRTY", 
+                       "EPL_UNEMP", "EPL_HBURD", "EPL_NOHSDP")
+
+# Filter the data frame
+trim_svi <- svi_econ %>%
+  select(all_of(selected_columns))
+
+# Prepare data
+x <- model.matrix(RPL_THEMES ~ . - 1, data = trim_svi)
+y <- svi_econ$RPL_THEMES
+
+# Fit LASSO regression model
+fit_lasso <- cv.glmnet(x, y, alpha = 1)
+
+# Display coefficients of the LASSO model
+coef_lasso <- coef(fit_lasso, s = fit_lasso$lambda.min)
+print(coef_lasso)
+
+# Fit Ridge regression model
+#fit_ridge <- cv.glmnet(x, y, alpha = 0)
+
+# Display coefficients of the Ridge model
+#coef_ridge <- coef(fit_ridge, s = fit_ridge$lambda.min)
+#print(coef_ridge)
+
+#optimal_lambda <- fit_lasso$lambda.min
+#coefficients_at_optimal_lambda <- coef(fit_lasso, s = optimal_lambda)
+#print(coefficients_at_optimal_lambda)
+
+```
+
+**Results**: All of the coefficients turn out to be non zero, but some are slightly lower than the others. However, due to the nature of this analysis, the coefficients are deemed meaningful if they are non-zero values. 
+Interpretation of the coefficients can be understood as:
+
+**Income**: The coefficient is -0.217, suggesting a one-unit increase in income is associated with a decrease of approximately -0.217 units in the response variable, holding other variables constant.
+
+**EPL_POV150**: The coefficient is 0.1949, suggesting a one-unit increase in EPL_POV150 is associated with an increase of approximately 0.1949 units in the response variable, holding other variables constant.
+
+
+Out of all of the variables, it appears `EPL_AGE65` (0.09326387), `EPL_AGE17` (0.02160010), and `EPL_UNEMP` (0.09555821) all have the smallest impact on overall SVI, but are still significant in the model. 
+
+
+Therefore, it appears that **LASSO** and **Stepwise** both selected the full model as the best model. In the next steps, a comparison of the simpler linear regression model and the full regression model will be carried out. 
+
+This answers the SMART question regarding which variables are significant in modeling and predictign SVI. 
+
+##### Linear Regression {.tabset .tabset-fade .tabset-pills}
+
+We begin the classification process by examining the relationships of these variables in a linear regression to identify which model is best to use out of the two identified models from feature selection. This is done by examining model preformance and characteristics. 
+
+###### Simple Model 
+**The simple model represents the linear regression modeled by: RPL_THEMES ~ income_scaled + EPL_POV150 + EPL_HBURD + EPL_NOHSDP, as identified by the correlation matrix.**
+
+```{r}
+simple_model <- lm(RPL_THEMES ~ income_scaled + EPL_POV150 + EPL_HBURD + EPL_NOHSDP, data = svi_econ)
+summary(simple_model)
+full_model <- lm(RPL_THEMES ~ income_scaled + EPL_POV150 +EPL_UNINSUR +EPL_AGE65 +EPL_AGE17+ EPL_DISABL+ EPL_SNGPNT +EPL_LIMENG + EPL_MINRTY +EPL_UNEMP + EPL_HBURD + EPL_NOHSDP, data = svi_econ)
+
+```
+In this model, all of the variables are significant with low p-values. This model has an R-squared of **0.846**, suggesting a moderate fit. 
+
+###### Full Model 
+**The full model represents the model utilizing all of the variables.**
+
+```{r}
+summary(full_model)
+
+```
+
+In this model, all of the variables are significant with low p-values. This model has an R-squared of **0.9067**, suggesting a better fit than the simple model, with a good fit. 
+
+
+###### Assessing AIC  
+
+```{r, results='hide'}
+# Assessment for initial_model
+#summary(simple_model)
+#plot(simple_model)
+
+# Assessment for initial_model2
+#summary(full_model)
+#plot(full_model)
+
+# Calculate AIC for initial_model
+aic_simple_model <- AIC(simple_model)
+
+# Calculate AIC for initial_model2
+aic_full_model <- AIC(full_model)
+
+# Compare AIC values
+#cat("AIC for simple_model:", aic_simple_model, "\n")
+#cat("AIC for full_model:", aic_full_model, "\n")
+```
+
+Assessing the AIC values of both models, it is seen that the AIC for the simple model is **-13891.99** while the AIC for the full model is **-18331.04**. Therefore, it is recommended to use the model with the lower AIC, as it is the better model. 
+
+###### R-Squared 
+
+```{r, results='hide'}
+# Calculate Adjusted R-squared for initial_model
+adj_rsq_simple_model <- summary(simple_model)$adj.r.squared
+
+# Calculate Adjusted R-squared for initial_model2
+adj_rsq_full_model2 <- summary(full_model)$adj.r.squared
+
+# Compare Adjusted R-squared values
+cat("Adjusted R-squared for simple:", adj_rsq_simple_model, "\n")
+cat("Adjusted R-squared for full:", adj_rsq_full_model2, "\n")
+```
+
+**Adjusted R-squared for simple model**: 0.8465219
+
+**Adjusted R-squared for full model**: 0.9065885
+
+The full model is more effective at explaining the variation in the SVI scores, and thus may have a higher predictive capability. 
+
+###### VIFS
+
+```{r, results='hide'}
+# Calculate VIF for initial_model
+vif_simple_model <- car::vif(simple_model)
+
+# Calculate VIF for initial_model2
+vif_full_model <- car::vif(full_model)
+
+# Compare VIF values
+cat("VIF for simple_model:", vif_simple_model, "\n")
+cat("VIF for full_model:", vif_full_model, "\n")
+
+```
+
+**Simple Model VIF: ** 4.30, 3.51, 3.64, 1.98
+
+**Full Model VIF:** 5.02, 3.78, 2.14, 2.23, 1.80,  1.77, 1.71, 2.73, 3.34, 1.25, 3.95, 4.23
+
+Both simple and full models have VIF values under 10, and only one value (income) in the full model is slightly above 5. This is still within the range of acceptable values, therefore it is appropriate to use the full model. 
+
+
+##### Predictive Modeling {.tabset .tabset-fade .tabset-pills} 
+
+###### Quartile Model
+
+As a result of the feature selection process, it was determined that the full model is appropriate and the best fitting model to use. Therefore, the variables from this full model will be used to analyze the question of it is possible to classifify census tracts into levels of SVI risk. 
+
+From the CDC website, the recommended levels of risk to model are: 
+
+"In the CDC/ATSDR SVI Interactive Map, we classify data using quartiles (0 to .2500, .2501 to .5000, .5001 to .7500, .7501 to 1.0) and indicate that the classification goes from least vulnerable to most vulnerable."
+
+The initial data processing required to classify the census tracts is to assign each tract a level of **low**, **medium-low**, **medium-high**, and **high** based on the quartile breaks. Below is a plot of the census tracts broken into quartiles. 
+
+```{r}
+# Create quartiles and labels
+trim_svi$risk <- cut(trim_svi$RPL_THEMES, breaks = c(0, 0.25, 0.5, 0.75, 1.0), labels = c("low", "lowmed", "medhigh", "high"))
+
+# Plot the data with quartile labels
+library(ggplot2)
+
+ggplot(trim_svi, aes(x = risk, fill = risk)) +
+  geom_bar() +
+  labs(title = "Bar Plot of SVI Quartiles", x = "SVI Risk", y = "Count") +
+  scale_fill_manual(values = c("low" = "#1a9641", "lowmed" = "#a6d96a", "medhigh" = "#fdae61", "high" = "#d7191c"))+
+  scale_x_discrete(labels = c("low" = "Low", "lowmed" = "Low-Medium", "medhigh" = "Medium-High", "high" = "High"))+
+  theme_minimal() +
+  theme(legend.position = "none", text = element_text(family = "Avenir"))
+  
+
+
+```
+
+From this plot, it is seen that in California there are more medium-high and high risk census tracts than low and medium-low risk counties. This may cause issues in classifying the data due to the fact that there is an imbalance of data in each target class, with a bias towards more high risk tracts. 
+
+**Classification Trees**
+
+Classification trees with a max-depth of **4** were used to classify the census tracts into the quartile rankings. While this may not be the best fitting size of the tree, anything beyond 4 levels may become difficult to interpret, while the aim of the project is to create an easily interpret-able figure for first responders or government officials. Interpret-ability of decision trees is a plus, but it may not be the most effective or comprehensive algorithm. 
+
+```{r}
+set.seed(1)
+svi_econ_tree <- rpart(risk ~ income_scaled + EPL_POV150 + EPL_UNINSUR + EPL_AGE65 + EPL_AGE17 + EPL_DISABL + EPL_SNGPNT + EPL_LIMENG + EPL_MINRTY + EPL_UNEMP + EPL_HBURD + EPL_NOHSDP , data=trim_svi, method="class", control = list(maxdepth = 4) )
+
+#summary(svi_econ_tree)
+#plot(svi_econ_tree, uniform=TRUE, main="Classification Tree for svi_econ_tree")
+#text(svi_econ_tree, use.n=TRUE, all=TRUE, cex=.8)
+```
+
+This figure depicts the decision tree used to classify census tracts into the rankings. From this tree, it is possible to see which variables are used to determine the classification of the tract and at what value. These variables are: `EPL_POV150` (Population in poverty over 150%), `EPL_NOHSDP` (No high school diploma), `income_scaled` (Median income), `EPL_HBURD` (Housing burdened). 
+
+```{r}
+fancyRpartPlot(svi_econ_tree)
+```
+
+Below is a plot of the Cross-Validation Relative Error of the tree. Relative error is a metric used to assess the predictive performance of a model, which measures the difference between predicted values and actual values relative to the actual values. The x-axis labeled "cp" refers to the complexity parameter. A smaller value of "cp" indicates more aggressive pruning, resulting in a smaller and simpler tree, which is a trade-off with higher predictive accuracy. The second x-axis is the size of the tree, referring to how many splits there are. 
+
+This is an important graph to analyze, as when a decision tree is grown, it may become too overfit, capturing noise instead of real relationships. The goal is to find a "cp" that results in a well-balanced tree, providing good predictive performance on both the training and validation data. This tree's relative error ranks from 0.4 to 1, which implies even the biggest tree still has a relative error of 40%. 
+
+```{r}
+#printcp(svi_econ_tree) 
+plotcp(svi_econ_tree) 
+```
+
+
+**Confusion Matrix**:
+Below is a confusion matrix using the above classification tree. From initial observations, it is clear that this model is not accurately classifying the census tracts into quartile risk classes. 
+
+```{r}
+# Generate predictions on the training data
+train_predictions <- predict(svi_econ_tree, trim_svi, type = "class")
+
+# Create a confusion matrix
+conf_matrix_train <- table(train_predictions, trim_svi$risk)
+
+
+xkabledply(conf_matrix_train, "confusion matrix")
+
+```
+
+From the confusion matrix, it is possible to gain information about the accuracies of this classification model. For this analysis, the algorithm is classifying a categorical variable into 4 levels. Therefore, the table below depicts the overall accuracy, and then the precision and recall by class. 
+
+```{r}
+
+# Convert to confusion matrix object
+conf_matrix <- as.table(conf_matrix_train)
+
+# Print the confusion matrix
+# Calculate metrics
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+precision <- diag(conf_matrix) / rowSums(conf_matrix)
+recall <- diag(conf_matrix) / colSums(conf_matrix)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Print metrics
+cat("Accuracy:", accuracy, "\n")
+cat("Precision (by class):", precision, "\n")
+cat("Recall (by class):", recall, "\n")
+#cat("F1 Score (by class):", f1_score, "\n")
+
+```
+As seen in the results, the overall accuracy is fairly low, at **68.9%**. The decision tree is better at classifying levels of high risk. This is likely due to the fact that there are more census tracts that are higher risk, due to imbalanced data. Additionally, the model might not be as accurate in picking up the differences between low and low-medium and medium and medium-high, as these might be small variations in scores and variable values. 
+
+Below is a table of the evaluation statistics for the model.   
+
+```{r}
+loadPkg("rpart")
+loadPkg("caret")
+
+# create an empty dataframe to store the results from confusion matrices
+confusionMatrixResultDf = data.frame( Depth=numeric(0), Accuracy= numeric(0), Sensitivity=numeric(0), Specificity=numeric(0), Pos.Pred.Value=numeric(0), Neg.Pred.Value=numeric(0), Precision=numeric(0), Recall=numeric(0), F1=numeric(0), Prevalence=numeric(0), Detection.Rate=numeric(0), Detection.Prevalence=numeric(0), Balanced.Accuracy=numeric(0), row.names = NULL )
+
+for (deep in 2:6) {
+   kfit  <- rpart(risk ~ income_scaled + EPL_POV150 + EPL_UNINSUR + EPL_AGE65 + EPL_AGE17 + EPL_DISABL + EPL_SNGPNT + EPL_LIMENG + EPL_MINRTY + EPL_UNEMP + EPL_HBURD + EPL_NOHSDP , data=trim_svi, method="class", control = list(maxdepth = deep) )
+  # 
+  cm = confusionMatrix( predict(kfit, type = "class"), reference = trim_svi[, "risk"] ) # from caret library
+  # 
+  cmaccu = cm$overall['Accuracy']
+  # print( paste("Total Accuracy = ", cmaccu ) )
+  # 
+  cmt = data.frame(Depth=deep, Accuracy = cmaccu, row.names = NULL ) # initialize a row of the metrics 
+  cmt = cbind( cmt, data.frame( t(cm$byClass) ) ) # the dataframe of the transpose, with k valued added in front
+  confusionMatrixResultDf = rbind(confusionMatrixResultDf, cmt)
+  # print("Other metrics : ")
+}
+
+unloadPkg("caret")
+
+xkabledply(confusionMatrixResultDf, title="SVI econ Classification Trees summary with varying MaxDepth")
+```
+
+###### Binary Model 
+
+Instead of classifying into 4 levels of risk, splitting the census tracts into low versus high risk could potentially increase accuracy. Therefore, the final model that could be provided to emergency responders or government officials would provide a high level overview of what sort of variables and values would cause a census tracts to have high risk or low risk. 
+
+While the data is still imbalanced, the model might have a better accuracy by telling apart this coarser distinction rather than the small differences in values. 
+```{r}
+# Create binary classification (low vs high) based on the provided breaks
+trim_svi$risk_binary <- cut(trim_svi$RPL_THEMES, breaks = c(0, 0.5, 1), labels = c("low", "high"))
+
+ggplot(trim_svi, aes(x = risk_binary, fill = risk_binary)) +
+  geom_bar() +
+  labs(title = "Bar Plot of SVI Risk (Binary)", x = "SVI Risk", y = "Count") +
+  scale_fill_manual(values = c("low" = "#1a9641", "high" = "#d7191c")) +
+  scale_x_discrete(labels = c("low" = "Low (0-0.50)", "high" = "High (0.50-1)")) +
+  theme_minimal() +
+  theme(legend.position = "none", text = element_text(family = "Avenir"))
+
+# Decision Tree Modeling
+set.seed(1)
+svi_econ_tree <- rpart(risk_binary ~ income_scaled + EPL_POV150 + EPL_UNINSUR + EPL_AGE65 + EPL_AGE17 + EPL_DISABL + EPL_SNGPNT + EPL_LIMENG + EPL_MINRTY + EPL_UNEMP + EPL_HBURD + EPL_NOHSDP, data = trim_svi, method = "class", control = list(maxdepth = 4))
+printcp(svi_econ_tree)  # display the results 
+
+```
+
+Below is a confusion matrix of the values. 
+
+```{r}
+# Confusion Matrix
+train_predictions <- predict(svi_econ_tree, trim_svi, type = "class")
+conf_matrix_train <- table(train_predictions, trim_svi$risk_binary)
+
+# Display the confusion matrix
+xkabledply(conf_matrix_train, "confusion matrix")
+
+
+# Convert to confusion matrix object
+conf_matrix <- as.table(conf_matrix_train)
+
+```
+
+From the confusion matrix, the overall accuracy, precision for each class, and recall for each class are shown below. 
+
+```{r,  results='hide' }
+# True Positives, False Positives, False Negatives, True Negatives
+tp <- conf_matrix_train["high", "high"]
+fp <- conf_matrix_train["low", "high"]
+fn <- conf_matrix_train["high", "low"]
+tn <- conf_matrix_train["low", "low"]
+
+# Accuracy
+accuracy <- (tp + tn) / sum(conf_matrix_train)
+cat("Overall Accuracy:", accuracy, "\n")
+
+# Precision for "high"
+precision_high <- tp / (tp + fp)
+cat("Precision for 'high':", precision_high, "\n")
+
+# Recall for "high"
+recall_high <- tp / (tp + fn)
+cat("Recall for 'high':", recall_high, "\n")
+
+# Precision for "low"
+precision_low <- tn / (tn + fn)
+cat("Precision for 'low':", precision_low, "\n")
+
+# Recall for "low"
+recall_low <- tn / (tn + fp)
+cat("Recall for 'low':", recall_low, "\n")
+
+```
+
+From this analysis, it is seen that this model with the binary classification has an overall accuracy of **89.24%**. This is a higher overall accuracy compared to the previous model scoring 68.9%. The individual precision and recall values for this model are below:
+
+* Precision for 'high': **0.911**
+* Recall for 'high': **0.9155**
+
+* Precision for 'low': **0.8619**
+* Recall for 'low': **0.8550**
+
+These individual measures of accuracies are higher overall compared to the other classification. This algorithm does a better job at accurately predicting census tract risk scores, and avoids FP and FN more effectively. Overall, this model is still more effective at classifying high risk, probably still due to the imbalanced data. 
+
+Using this binary classification, a classification tree can be provided to identify low versus high risk tracts, with clearly identifiable variables and values that determine the classification decisions. This deliverable, or an example of one, can be seen below.
+
+```{r}
+set.seed(1)
+svi_econ_tree <- rpart(risk_binary ~ income_scaled + EPL_POV150 + EPL_UNINSUR + EPL_AGE65 + EPL_AGE17 + EPL_DISABL + EPL_SNGPNT + EPL_LIMENG + EPL_MINRTY + EPL_UNEMP + EPL_HBURD + EPL_NOHSDP , data=trim_svi, method="class", control = list(maxdepth = 4) )
+
+fancyRpartPlot(svi_econ_tree)
+```
+
+**Conclusion**: From this decision tree, it can be sugested that the variables planners/officials could look at to determine high versus low risk are `EPL_POV150` (poverty rate above 150%), `EPL_NOHSDP` (no high school diploma), and `income_scaled` (median income). This is an interesting finding that provides further insights as to which variables are significant or meaningful in modeling the SVI risk of census tracts, building off of the correlations identified project 1 and contributing the other findings and models analyzed in this project. It can also be concluded that the full model is the more representative model, and it does a better job at classifying census tract risk. Additionally, the model does a better job at classifying high vs low risk, rather than the four level risk classification. This suggests that to examine more fine scale risk, it would be necessary to introduce more data, either in bootstrapping and resampling, or fine tuning parameters of the models to create a better and more accurate model. 
+
+### COVID-19 
+
+#### Covid Data EDA and Modeling {.tabset .tabset-fade .tabset-pills}
+
+##### Data Cleaning 
+
+*Data cleaning is an essential step in data analysis to ensure accuracy and reliability. The given R code snippets demonstrate key data cleaning procedures such as column subsetting and renaming, missing values removal, formatting, and row subsetting.*
+
+**Column Subsetting and Renaming**
+
+*This process involves selecting specific columns from a dataset and renaming them for clarity and consistency. In the provided code, the subset function is used to select relevant columns from the SVI_Data dataset, creating a new dataframe SVI. Further, the columns 'STCNTY' and 'us_cases' were renamed for clarity*
+
+```{r}
+
+SVI <- subset(SVI_Data, select = c(STATE,STCNTY,COUNTY,FIPS,EP_POV150,EP_LIMENG,EP_AGE65, EP_MINRTY,	EP_UNEMP,	EP_NOHSDP,EP_AGE17,EP_DISABL,EP_SNGPNT,EP_MUNIT,EP_MOBILE,EP_CROWD,EP_NOVEH,EP_GROUPQ,RPL_THEMES) )
+
+# Renaming columns
+colnames(SVI)[colnames(SVI) == 'STCNTY'] <- 'county_fips'
+
+us_cases <- rename(us_cases, confirmed_cases = confirmed)
+
+
+```
+
+**Missing values removal**
+
+*Dealing with missing or invalid data is crucial. The code filters out rows in the SVI dataframe ensuring removal of placeholder or erroneous entries. Additionally, the na.omit function removes rows with any missing values (NA). This step is also applied to other datasets (us_cases and us_deaths) to identify rows with missing data in specific columns.*
+
+```{r}
+# Filter out rows with any value equal to -999
+SVI <- SVI[rowSums(SVI == -999, na.rm = TRUE) == 0, ]
+
+# Drop rows with missing values
+SVI <- na.omit(SVI)
+
+us_cases[is.na(us_cases$confirmed_cases), ]
+us_deaths[is.na(us_deaths$deaths), ]
+```
+
+
+
+**Formatting**
+
+*Data often requires conversion into a usable format. In this step, the 'date' columns in us_cases and us_deaths datasets are converted to POSIXct datetime objects using the as.POSIXct function. This conversion, dictated by a predefined format string (format_str), is essential for time-series analysis or operations that require date-time formatted data.*
+
+```{r}
+
+format_str <- '%Y-%m-%d'
+
+# Convert the 'date' column to datetime and create a new 'datetime' column
+us_cases$datetime <- as.POSIXct(us_cases$date, format = format_str)
+us_deaths$datetime <- as.POSIXct(us_deaths$date, format = format_str)
+
+
+```
+
+**Row Subsetting**
+
+*This step involves selecting specific rows based on certain conditions. For the SVI dataset, rows pertaining to the state of California are extracted into CA_SVI. In us_cases and us_deaths, rows labeled as 'Statewide Unallocated' are excluded to focus on specific counties. Additionally, subsets of the us_cases and us_deaths datasets are created for the state of California ('CA'), allowing for a more focused analysis on this region.*
+
+```{r}
+CA_SVI <- subset(SVI, STATE == "California")
+# Drop rows that do not refer to a specific county ('Statewide Unallocated')
+us_cases <- us_cases[us_cases$county_name != 'Statewide Unallocated', ]
+us_deaths <- us_deaths[us_deaths$county_name != 'Statewide Unallocated', ]
+
+
+us_cases_ca <- subset(us_cases, state_name == "CA")
+us_deaths_ca <- subset(us_deaths, state_name == "CA")
+
+```
+
+##### EDA {.tabset .tabset-fade .tabset-pills}
+
+*The below EDA techniques focuses on creating maps and timeline for COVID-19 in California.*
+
+**Look at the Data**
+
+*Before we procede to the EDA lets look at our data*
+
+**The COVID-19 confirmed cases dataset:**
+
+```{r}
+
+xkabledplyhead(us_cases_ca)
+
+```
+
+**The COVID-19 deaths dataset:**
+```{r}
+
+xkabledplyhead(us_deaths_ca)
+
+```
+
+
+**Data Aggregation and Summarization:**
+
+*We start with aggregating and summarizing confirmed cases and deaths by county. The data is then grouped by county_fips and county_name within the state of California (us_cases_ca and us_deaths_ca). Summations of confirmed cases and deaths are calculated using the summarise function. The arrange function sorts these summaries in descending order, highlighting areas with the highest impact. This step is crucial for understanding the distribution and impact of COVID-19 at the county level.*
+```{r, include=FALSE}
+# Calculate Sum of confirmed cases based on county fips and groupby county 
+us_cases_grouping_fips <- us_cases_ca %>%
+  group_by(county_fips, state_name) %>%
+  summarise(max_confirmed_cases = sum(confirmed_cases)) %>%
+  arrange(desc(max_confirmed_cases))
+
+us_cases_grouping_county <- us_cases_ca %>%
+  group_by(county_name, state_name) %>%
+  summarise(max_confirmed_cases = sum(confirmed_cases)) %>%
+  arrange(desc(max_confirmed_cases))
+
+result <- bind_cols(us_cases_grouping_fips, us_cases_grouping_county)
+Summarized_cases<-result[, 1:4]
+new_col_names <- c("fips", "state", "confirmed", "county")
+names(Summarized_cases) <- new_col_names
+
+# Calculate Sum of deaths based on county fips and groupby county 
+
+us_deaths_grouping_fips <- us_deaths_ca %>%
+  group_by(county_fips, state_name) %>%
+  summarise(max_deaths = sum(deaths)) %>%
+  arrange(desc(max_deaths))
+
+us_deaths_grouping_county <- us_deaths_ca %>%
+  group_by(county_name, state_name) %>%
+  summarise(max_deaths = sum(deaths)) %>%
+  arrange(desc(max_deaths))
+
+result1 <- bind_cols(us_deaths_grouping_fips, us_deaths_grouping_county)
+Summarized_deaths<-result1[, 1:4]
+new_col_names1 <- c("fips", "state", "deaths", "county")
+names(Summarized_deaths) <- new_col_names1
+
+```
+
+###### Map #1
+
+**Map of CA colored by confirmed cases**
+
+*For confirmed cases, a choropleth map of California (plot_usmap) is generated, where each county is colored based on the number of confirmed COVID-19 cases (Summarized_cases). The map is enhanced with a color gradient (white to dark blue), making it easy to identify areas with higher numbers of cases. *
+```{r}
+
+# Plot the choropleth map
+plot_usmap(
+  data = Summarized_cases,
+  values = "confirmed",
+  include = c("CA"),
+  labels = TRUE
+) + 
+scale_fill_gradient(
+  low = "white", high = "darkblue", name = "Confirmed Cases", label = scales::comma) + 
+labs(title = "COVID-19 Confirmed Cases in California Counties") +
+theme(legend.position = "right")
+
+```
+
+**Observation:**
+
+*The darkest shade of blue, which suggests the highest number of confirmed cases, appears concentrated in one specific area (Los Angeles). This suggests that there is a significant outbreak or a larger population in this county, which could potentially be one of the more urban areas with higher population density.*
+
+*The gradient scale on the right indicates that the highest number of confirmed cases in a single county goes up to 6,000,000, which is a substantial figure. This suggests a high transmission rate or a prolonged presence of the virus in the most affected areas.*
+
+*Most counties appear to have a much lower number of cases, as indicated by the light blue or white color, showing a significant disparity in case distribution across the state.*
+
+
+
+###### Map #2
+**Map of CA colored by deaths**
+
+*For number of deaths, a choropleth map of California (plot_usmap) is generated, where each county is colored based on the number of COVID-19 deaths (Summarized_deaths). The map is enhanced with a color gradient (white to dark blue), making it easy to identify areas with higher numbers of deaths. *
+
+```{r}
+
+# Plot the choropleth map
+plot_usmap(
+  data = Summarized_deaths,
+  values = "deaths",
+  include = c("CA"),
+  labels = TRUE
+) + 
+scale_fill_gradient(
+  low = "white", high = "darkblue", name = "Number of Deaths", label = scales::comma) + 
+labs(title = "COVID-19 Deaths in California Counties") +
+theme(legend.position = "right")
+
+```
+**Observation:**
+
+*The second map represents the number of deaths attributed to COVID-19. Again, the same county (LA) that had the highest number of confirmed cases also has the highest number of deaths, which is consistent with expectations.*
+
+*The scale for deaths is significantly lower than that for confirmed cases, topping out at 250,000 deaths in the most affected county. This disparity between the number of cases and deaths may be due to various factors, including the healthcare system's capacity, the demographic profile of the affected population, and the measures taken to treat and prevent the spread of the virus.*
+
+
+*Similar to the confirmed cases, the rest of the counties show fewer deaths, indicating a lesser impact or effective management and response to the pandemic in these regions.*
+
+
+###### Timeline for Confirmed cases
+
+*Here we perform data aggregation and summarization tasks on two separate datasets: one containing COVID-19 data(confirmed cases) and the other containing  vulnerability indicators (referred to as SVI).*
+
+*For the COVID-19 data, the code groups the data by county FIPS code, county name, and state name to organize the cases geographically. It then calculates the total number of confirmed COVID-19 cases for each county and sorts these totals in descending order, so that counties with the most cases and deaths appear first.*
+
+*For the SVI data, the code similarly groups the data by geographical identifiers but goes on to calculate the average for a range of vulnerability indicators within each county. These indicators include measures of poverty, linguistic isolation, the proportion of the elderly population, minority status, unemployment rates, education levels, and others that together create a profile of each county's social vulnerability.*
+
+
+```{r, include=FALSE}
+us_cases_all_counties <- us_cases_ca %>%
+  group_by(county_fips, county_name, state_name) %>%
+  summarise(confirmed_cases = sum(confirmed_cases)) %>%
+  arrange(desc(confirmed_cases))
+
+# Group by Fips, County, and State, and calculate the mean of selected indicators
+svi_all_counties <- SVI %>%
+  group_by(county_fips, COUNTY, STATE) %>%
+  summarise(
+    EP_POV150 = mean(EP_POV150),
+    EP_LIMENG = mean(EP_LIMENG),
+    EP_AGE65 = mean(EP_AGE65),
+    EP_MINRTY = mean(EP_MINRTY),
+    EP_UNEMP = mean(EP_UNEMP),
+    EP_NOHSDP = mean(EP_NOHSDP),
+    EP_AGE17 = mean(EP_AGE17),
+    EP_DISABL = mean(EP_DISABL),
+    EP_SNGPNT = mean(EP_SNGPNT),
+    EP_MUNIT = mean(EP_MUNIT),
+    EP_MOBILE = mean(EP_MOBILE),
+    EP_CROWD = mean(EP_CROWD),
+    EP_NOVEH = mean(EP_NOVEH),
+    EP_GROUPQ = mean(EP_GROUPQ),
+    RPL_THEMES = mean(RPL_THEMES)
+  )
+svi_all_counties_ca <- subset(svi_all_counties, STATE == "California")
+# Merge with us_cases_all_counties and sort by confirmed_cases
+svi_all_counties_cases <- merge(svi_all_counties_ca, us_cases_all_counties, by = 'county_fips') %>%
+  arrange(desc(confirmed_cases))
+
+# Remove unnecessary columns
+svi_all_counties_cases <- select(svi_all_counties_cases, -county_name, -state_name)
+```
+
+```{r}
+head(svi_all_counties_cases)
+```
+*Above table shows the top counties with the highest COVID-19 cases and their mean SVI*
+
+
+**Create timeline of covid confirmed cases**
+
+*The aggreagated data created before is used to visualize the timeline of COVID-19 cases in different counties in CA*
+
+```{r}
+
+# Which are the 10 most affected US counties?
+ca_cases_top_10 <- head(us_cases_all_counties, 10)
+
+# Preparing a list with the 10 most affected counties:
+top_10_cases_fips_list <- ca_cases_top_10$county_fips
+
+ca_cases_top_10_datetime <- subset(us_cases_ca, county_fips %in% top_10_cases_fips_list)
+
+# Plot Timeline of cases
+ca_cases_top_10_datetime$datetime <- as.Date(ca_cases_top_10_datetime$datetime)  # Make sure datetime is in Date format
+
+f <- ggplot(ca_cases_top_10_datetime, aes(x = datetime, y = confirmed_cases, color = county_name)) +
+  geom_line() +
+  labs(x = 'Timeline', y = 'Confirmed Cases', title = 'Confirmed cases in CA counties') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_discrete(name = 'County Name')+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")   # Format the x-axis with month and year
+
+
+print(f)
+
+```
+**Observation**
+
+*Los Angeles County stands out with a pronounced exponential growth curve, indicating a rapid increase in confirmed cases, surpassing 150,000 by August 2020. Other counties such as San Diego, Orange, and Riverside also show a rise in cases, but none as dramatic as Los Angeles County. This graph emphasizes the wide variation in case numbers between counties, with some experiencing relatively moderate increases while one, in particular, sees a far more aggressive spread of the virus.*
+
+
+###### Timeline for  Number of Deaths
+
+*Here we perform data aggregation and summarization tasks on two separate datasets: one containing COVID-19 data(confirmed cases) and the other containing  vulnerability indicators (referred to as SVI).*
+
+*For the COVID-19 data, the code groups the data by county FIPS code, county name, and state name to organize the cases geographically. It then calculates the total number of confirmed COVID-19 cases for each county and sorts these totals in descending order, so that counties with the most cases and deaths appear first.*
+
+*For the SVI data, the code similarly groups the data by geographical identifiers but goes on to calculate the average for a range of vulnerability indicators within each county. These indicators include measures of poverty, linguistic isolation, the proportion of the elderly population, minority status, unemployment rates, education levels, and others that together create a profile of each county's social vulnerability.*
+
+```{r, include=FALSE}
+
+us_deaths_all_counties <- us_deaths_ca %>%
+  group_by(county_fips, county_name, state_name) %>%
+  summarise(deaths = sum(deaths)) %>%
+  arrange(desc(deaths))
+
+# Group by Fips, County, and State, and calculate the mean of selected indicators
+svi1_all_counties <- SVI %>%
+  group_by(county_fips, COUNTY, STATE) %>%
+  summarise(
+    EP_POV150 = mean(EP_POV150),
+    EP_LIMENG = mean(EP_LIMENG),
+    EP_AGE65 = mean(EP_AGE65),
+    EP_MINRTY = mean(EP_MINRTY),
+    EP_UNEMP = mean(EP_UNEMP),
+    EP_NOHSDP = mean(EP_NOHSDP),
+    EP_AGE17 = mean(EP_AGE17),
+    EP_DISABL = mean(EP_DISABL),
+    EP_SNGPNT = mean(EP_SNGPNT),
+    EP_MUNIT = mean(EP_MUNIT),
+    EP_MOBILE = mean(EP_MOBILE),
+    EP_CROWD = mean(EP_CROWD),
+    EP_NOVEH = mean(EP_NOVEH),
+    EP_GROUPQ = mean(EP_GROUPQ),
+    RPL_THEMES = mean(RPL_THEMES)
+  )
+svi1_all_counties_ca <- subset(svi1_all_counties, STATE == "California")
+# Merge with us_cases_all_counties and sort by confirmed_cases
+svi_all_counties_deaths <- merge(svi1_all_counties_ca, us_deaths_all_counties, by = 'county_fips') %>%
+  arrange(desc(deaths))
+
+# Remove unnecessary columns
+svi_all_counties_deaths <- select(svi_all_counties_deaths, -county_name, -state_name)
+```
+
+```{r}
+
+head(svi_all_counties_deaths)
+
+```
+*Above table shows the top counties with the highest COVID-19 deaths and their mean SVI*
+
+
+**Create timeline of covid death**
+
+*The aggreagated data created before is used to visualize the timeline of COVID-19 cases in different counties in CA*
+
+```{r}
+
+
+# Which are the 10 most affected US counties?
+ca_deaths_top_10 <- head(us_deaths_all_counties, 10)
+
+# Preparing a list with the 10 most affected counties:
+top_10_deaths_fips_list <- ca_deaths_top_10$county_fips
+
+ca_deaths_top_10_datetime <- subset(us_deaths_ca, county_fips %in% top_10_deaths_fips_list)
+
+# Plot Timeline of cases
+ca_deaths_top_10_datetime$datetime <- as.Date(ca_deaths_top_10_datetime$datetime)  # Make sure datetime is in Date format
+
+f <- ggplot(ca_deaths_top_10_datetime, aes(x = datetime, y = deaths, color = county_name)) +
+  geom_line() +
+  labs(x = 'Timeline', y = 'deaths', title = 'deaths in CA counties') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_discrete(name = 'County Name')+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")   # Format the x-axis with month and year
+
+print(f)
+
+```
+**Observation**
+
+*The graph shows a timeline of COVID-19 cases, where the number of deaths in Los Angeles County appears to exceed 4,000. In contrast, other counties represented on the graph, such as Alameda, Orange, Riverside, and others, show a much flatter curve with far fewer deaths over the same period. This visualization starkly illustrates the disparate impact of the pandemic across different regions within the state, with Los Angeles County being the most severely affected in terms of mortality. Both graphs provide a clear visual comparison of the pandemic’s impact at the county level and underline the importance of localized data in understanding and responding to the spread of COVID-19.*
+
+
+##### Correlation Matrix {.tabset .tabset-fade .tabset-pills}
+
+
+###### Correlation matrix #1
+
+**Corelation matrix between confirmed cases and SVI variables**
+
+```{r}
+# Plot the correlation matrix
+# Select relevant columns
+svi_all_counties_cases_corr <- svi_all_counties_cases[c('confirmed_cases', 'EP_POV150', 'EP_LIMENG', 'EP_AGE65', 'EP_MINRTY', 'EP_UNEMP', 'EP_NOHSDP', 'EP_AGE17', 'EP_DISABL', 'EP_SNGPNT', 'EP_MUNIT', 'EP_MOBILE', 'EP_CROWD', 'EP_NOVEH', 'EP_GROUPQ', 'RPL_THEMES')]
+
+# Calculate correlation matrix
+corr <- cor(svi_all_counties_cases_corr)
+corrplot(corr, is.corr = TRUE, method = 'color', na.label='NA',col = colorRampPalette(c("white", "darkblue"))(100), addCoef.col = 'black', number.cex = 0.5,mar = c(0, 0, 2, 0), tl.cex = 0.5, tl.col = 'black', tl.srt = 45)
+
+
+
+```
+
+**Observation:**
+
+*The matrix correlates various social vulnerability indices (like poverty, linguistic isolation, age, minority status, unemployment, etc.) with confirmed COVID-19 cases.*
+
+*There's a strong positive correlation between confirmed cases and EP_POV150 (representing poverty), EP_MINRTY (minority status), and EP_NOHSDP (individuals without a high school diploma). These strong positive correlations suggest that counties with higher poverty rates, larger minority populations, and more individuals without a high school diploma tend to have more confirmed COVID-19 cases.*
+
+*EP_LIMENG (limited English proficiency) and EP_AGE65 (seniors over 65) have strong negative correlations with confirmed cases, which might indicate that areas with higher numbers of non-English speakers or senior citizens have fewer confirmed cases. However, this could also be due to under reporting or less testing in these communities.*
+
+*The correlation with RPL_THEMES is also moderately strong, suggesting that higher overall vulnerability is associated with more confirmed cases.*
+
+###### Correlation matrix #2
+
+**Corelation matrix between deaths and SVI variables**
+
+```{r}
+# Plot the correlation matrix
+# Select relevant columns
+svi_all_counties_deaths_corr <- svi_all_counties_deaths[c('deaths', 'EP_POV150', 'EP_LIMENG', 'EP_AGE65', 'EP_MINRTY', 'EP_UNEMP', 'EP_NOHSDP', 'EP_AGE17', 'EP_DISABL', 'EP_SNGPNT', 'EP_MUNIT', 'EP_MOBILE', 'EP_CROWD', 'EP_NOVEH', 'EP_GROUPQ', 'RPL_THEMES')]
+
+# Calculate correlation matrix
+corr <- cor(svi_all_counties_deaths_corr)
+corrplot(corr, is.corr = TRUE, method = 'color', na.label='NA',col = colorRampPalette(c("white", "darkblue"))(100), addCoef.col = 'black', number.cex = 0.5,mar = c(0, 0, 2, 0), tl.cex = 0.5, tl.col = 'black', tl.srt = 45)
+
+
+
+```
+
+**Observation:**
+
+*This matrix analyzes the same set of variables but correlates them with COVID-19 deaths instead of cases.*
+
+*EP_POV150, EP_MINRTY, and EP_NOHSDP again show moderate to strong positive correlations with COVID-19 deaths, indicating that higher poverty, higher minority populations, and lower education levels are associated with higher death counts.*
+
+*Similar to the confirmed cases, EP_LIMENG and EP_AGE65 show negative correlations with deaths, which could suggest lower mortality in communities with these characteristics, although the reasons for this would require further investigation.*
+
+
+###### Correlation matrix #3
+
+
+**correlation matrix for SVI variables vs confirmed cases for just the most affected counties**
+
+
+```{r}
+
+# Select the rows in the SVI dataframe that contain the ten counties with most confirmed cases.
+svi_top_10_counties_cases <- SVI[SVI$county_fips %in% top_10_cases_fips_list, ]
+
+# Group by county, COUNTY, and STATE, and calculate the mean values for selected indicators.
+svi_top_10_counties_cases <- svi_top_10_counties_cases %>%
+  group_by(county_fips, COUNTY, STATE) %>%
+  summarise(
+    EP_POV150 = mean(EP_POV150),
+    EP_LIMENG = mean(EP_LIMENG),
+    EP_AGE65 = mean(EP_AGE65),
+    EP_MINRTY = mean(EP_MINRTY),
+    EP_UNEMP = mean(EP_UNEMP),
+    EP_NOHSDP = mean(EP_NOHSDP),
+    EP_AGE17 = mean(EP_AGE17),
+    EP_DISABL = mean(EP_DISABL),
+    EP_SNGPNT = mean(EP_SNGPNT),
+    EP_MUNIT = mean(EP_MUNIT),
+    EP_MOBILE = mean(EP_MOBILE),
+    EP_CROWD = mean(EP_CROWD),
+    EP_NOVEH = mean(EP_NOVEH),
+    EP_GROUPQ = mean(EP_GROUPQ),
+    RPL_THEMES = mean(RPL_THEMES)
+  ) %>%
+  ungroup()
+
+# Merge county SVI with confirmed cases of Covid-19
+svi_top_10_counties_cases <- merge(svi_top_10_counties_cases, ca_cases_top_10, by = 'county_fips') %>%
+  arrange(desc(confirmed_cases)) %>%
+  select(-county_name, -state_name)
+
+# Select columns for correlation analysis
+svi_top_10_counties_cases_corr <- svi_top_10_counties_cases[c(
+  'confirmed_cases', 'EP_POV150', 'EP_LIMENG', 'EP_AGE65', 'EP_MINRTY',
+  'EP_UNEMP', 'EP_NOHSDP', 'EP_AGE17', 'EP_DISABL', 'EP_SNGPNT',
+  'EP_MUNIT', 'EP_MOBILE', 'EP_CROWD', 'EP_NOVEH', 'EP_GROUPQ', 'RPL_THEMES'
+)]
+
+# Calculate correlation matrix
+corr <- cor(svi_top_10_counties_cases_corr)
+
+corrplot(corr, is.corr = TRUE, method = 'color', na.label='NA',col = colorRampPalette(c("white", "darkblue"))(100), addCoef.col = 'black', number.cex = 0.5,mar = c(0, 0, 2, 0), tl.cex = 0.5, tl.col = 'black', tl.srt = 45)
+
+
+```
+
+**Observation:**
+
+*There is a notable negative correlation between confirmed cases and EP_DISABL (presumably representing disabled individuals), EP_SNGPNT (single-parent households), and EP_MOBILE (mobile home residency). These negative values suggest that as the proportion of disabled individuals, single-parent households, or mobile home residencies increases, the number of confirmed cases tends to decrease, which could be due to various factors such as isolation or reduced social contact.*
+
+*The variable EP_UNEMP (unemployment) has a strong positive correlation with EP_NOHSDP (no high school diploma) and EP_POV150 (poverty), which might indicate that socioeconomic factors are interconnected and potentially contribute to vulnerability to COVID-19.*
+
+*EP_CROWD (crowded housing) shows a substantial positive correlation with confirmed cases, hinting that living conditions with limited space might contribute to the spread of the virus.*
+
+*The variable RPL_THEMES, with moderate positive correlations across the board, might be an aggregate indicator of risk, showing that overall vulnerability is linked to the number of confirmed cases.*
+
+###### Correlation matrix #4
+
+
+**Create correlation matrix for SVI vs number of deaths for just the most affected counties**
+
+```{r}
+
+# Select the rows in the SVI dataframe that contain the ten counties with most confirmed cases.
+svi_top_10_counties_deaths <- SVI[SVI$county_fips %in% top_10_deaths_fips_list, ]
+
+# Group by county, COUNTY, and STATE, and calculate the mean values for selected indicators.
+svi_top_10_counties_deaths <- svi_top_10_counties_deaths %>%
+  group_by(county_fips, COUNTY, STATE) %>%
+  summarise(
+    EP_POV150 = mean(EP_POV150),
+    EP_LIMENG = mean(EP_LIMENG),
+    EP_AGE65 = mean(EP_AGE65),
+    EP_MINRTY = mean(EP_MINRTY),
+    EP_UNEMP = mean(EP_UNEMP),
+    EP_NOHSDP = mean(EP_NOHSDP),
+    EP_AGE17 = mean(EP_AGE17),
+    EP_DISABL = mean(EP_DISABL),
+    EP_SNGPNT = mean(EP_SNGPNT),
+    EP_MUNIT = mean(EP_MUNIT),
+    EP_MOBILE = mean(EP_MOBILE),
+    EP_CROWD = mean(EP_CROWD),
+    EP_NOVEH = mean(EP_NOVEH),
+    EP_GROUPQ = mean(EP_GROUPQ),
+    RPL_THEMES = mean(RPL_THEMES)
+  ) %>%
+  ungroup()
+
+# Merge county SVI with confirmed cases of Covid-19
+svi_top_10_counties_deaths <- merge(svi_top_10_counties_deaths, ca_deaths_top_10, by = 'county_fips') %>%
+  arrange(desc(deaths)) %>%
+  select(-county_name, -state_name)
+
+# Select columns for correlation analysis
+svi_top_10_counties_deaths_corr <- svi_top_10_counties_deaths[c(
+  'deaths', 'EP_POV150', 'EP_LIMENG', 'EP_AGE65', 'EP_MINRTY',
+  'EP_UNEMP', 'EP_NOHSDP', 'EP_AGE17', 'EP_DISABL', 'EP_SNGPNT',
+  'EP_MUNIT', 'EP_MOBILE', 'EP_CROWD', 'EP_NOVEH', 'EP_GROUPQ', 'RPL_THEMES'
+)]
+
+# Calculate correlation matrix
+corr <- cor(svi_top_10_counties_deaths_corr)
+
+corrplot(corr, is.corr = TRUE, method = 'color', na.label='NA',col = colorRampPalette(c("white", "darkblue"))(100), addCoef.col = 'black', number.cex = 0.5,mar = c(0, 0, 2, 0), tl.cex = 0.5, tl.col = 'black', tl.srt = 45)
+
+```
+
+**Observation:**
+
+*EP_LIMENG (limited English proficiency) and EP_MINRTY (minority status) show moderate positive correlations with deaths, suggesting that these communities may experience higher mortality rates from COVID-19.*
+
+*Interestingly, the negative correlations observed in the confirmed cases matrix are not as pronounced here. EP_DISABL, EP_SNGPNT, and EP_MOBILE do not exhibit strong negative correlations with deaths, which could imply that while these factors are associated with fewer cases, they do not necessarily predict a lower number of deaths.*
+
+*The EP_CROWD variable also shows a positive correlation with deaths, which supports the idea that crowded living conditions may not only facilitate the spread of the virus but also contribute to higher mortality.*
+
+*RPL_THEMES again shows a moderate positive correlation with deaths, consistent with the notion that overall social vulnerability is related to worse outcomes in the pandemic.*
+
+
+**Conclusion from correlation matrix:**
+
+*The matrices indicate that social vulnerability factors are significantly correlated with both the spread of COVID-19 and its mortality impact.*
+
+*There are strong inter-correlations between several vulnerability indicators, suggesting that these factors are often co-occurring in the affected communities.*
+
+*While both matrices show that higher vulnerability correlates with negative COVID-19 outcomes, the patterns are not identical for confirmed cases and deaths, indicating that different factors may play a role in infection rates versus mortality rates.*
+
+*Correlation does not always imply causation hence  these relationships should be interpreted with caution.*
+
+##### Modeling {.tabset .tabset-fade .tabset-pills}
+
+###### Multiple Linear Regression for confirmed cases #1
+
+**Initial MLR for confirmed cases**
+
+```{r}
+library(caret)
+# Preparing the independent variable (X) and the dependent variable (y)
+y <- svi_all_counties_cases$RPL_THEMES
+X <- svi_all_counties_cases[, c('confirmed_cases','EP_POV150','EP_LIMENG','EP_AGE65', 'EP_MINRTY',	'EP_UNEMP',	'EP_NOHSDP','EP_AGE17','EP_DISABL','EP_SNGPNT','EP_MUNIT','EP_MOBILE','EP_CROWD','EP_NOVEH','EP_GROUPQ')]
+
+# Splitting the data into train and test data
+set.seed(42)  # For reproducibility
+train_indices <- createDataPartition(y, p = 0.8, list = FALSE)
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Initiate the model
+lm_model1 <- lm(y_train ~ ., data = cbind(y_train, X_train))
+
+# Predictions on the test set
+y_predict <- predict(lm_model1, newdata = X_test)
+summary(lm_model1)
+# Score (R-squared)
+print(summary(lm_model1)$r.squared)
+
+# Coefficients
+confirmed_cases_all_counties_coef <- data.frame(Coef = coef(lm_model1)[-1], Features = names(coef(lm_model1)[-1]))
+confirmed_cases_all_counties_coef <- confirmed_cases_all_counties_coef[order(-confirmed_cases_all_counties_coef$Coef), ]
+
+```
+
+*The comprehensive model incorporates all variables under consideration, including confirmed COVID-19 cases. It demonstrates a robust multiple R-squared value of 0.86, elucidating that approximately 86% of the variance in the Social Vulnerability Index (SVI) score, denoted as RPL_THEMES, is accounted for by this model. This high degree of explained variability signifies the model's strong predictive capacity.*
+
+*Upon examining the individual contributions of each predictor, we observe a spectrum of significance levels. Notably, the variable EP_MUNIT, representing the prevalence of multi-unit housing, emerges as a statistically significant predictor at the 0.05 level, indicative of a substantial correlation with the SVI score. Additionally, variables such as EP_POV150 (poverty indicator), EP_SNGPNT (single-parent households), and EP_MOBILE (mobile home residency) exhibit potential significance with p-values close to 0.1, suggesting their probable but less definitive influence on the SVI score.*
+
+*Conversely, the coefficient pertaining to confirmed COVID-19 cases does not reach a level of statistical significance. This absence of a clear linear association within the context of the model implies that while confirmed cases are an integral aspect of the public health landscape, they do not necessarily predict the SVI score directly when other variables are considered. This insight underscores the multifaceted nature of social vulnerability and the intricate interplay of various determinants.*
+
+**Feature Selection**
+
+*A stepwise feature selection process based on the Akaike information criterion (AIC) is applied to refine the model. The goal is to identify a subset of variables that provides a parsimonious model without compromising the explanatory power. The feature selection process sequentially removes variables that contribute the least to the model (e.g., EP_CROWD is removed first). The final model is more streamlined and focuses on predictors that contribute more significantly to the variation in confirmed cases.*
+
+```{r}
+
+
+# Stepwise feature selection
+lm_model2 <- step(lm_model1, direction = "both")
+
+```
+
+**Model after feature selection**
+
+```{r}
+# Display the selected model
+summary(lm_model2)
+
+# Get the selected features
+selected_features <- names(coef(lm_model2)[-1])
+selected_features
+
+
+
+```
+
+
+**Observation:**
+
+*The refined model, referred to as lm_model2, retains a robust explanatory capacity with a Multiple R-squared of 0.8506, mirroring the initial model's explanatory power. This is particularly noteworthy as it was achieved with a reduced set of predictors, indicating that the retained variables are indeed pivotal in explaining the variance in the social vulnerability index.*
+
+*The Adjusted R-squared value of our refined model saw a marginal increase from the original model, suggesting that the model's efficiency has been enhanced when adjusting for the number of predictors. This underscores the effectiveness of the feature selection process in isolating the most influential variables while eschewing redundant or less informative ones.*
+
+*Statistical analysis of lm_model2 reveals that variables such as unemployment rates, lack of high school diploma attainment, and multi-unit housing remain statistically significant, reinforcing their roles as critical indicators of social vulnerability in the context of the pandemic.*
+
+*A decrease in the residual standard error in lm_model2 compared to the initial model suggests a tighter fit to the data, enhancing the predictive accuracy of the model.*
+
+*The refined model presents an optimal balance between model complexity and explanatory power, facilitating a nuanced understanding of the factors contributing to social vulnerability during the COVID-19 pandemic. This balance is crucial in the scientific pursuit of parsimony, ensuring that the model is not overly complex while still capturing the essential dynamics at play.*
+
+
+###### Multiple Linear Regression for number of deaths #2
+
+**Initial MLR for deaths**
+```{r}
+library(caret)
+
+# Preparing the independent variable (X) and the dependent variable (y)
+y <- svi_all_counties_deaths$RPL_THEMES
+X <- svi_all_counties_deaths[, c('deaths','EP_POV150','EP_LIMENG','EP_AGE65', 'EP_MINRTY',	'EP_UNEMP',	'EP_NOHSDP','EP_AGE17','EP_DISABL','EP_SNGPNT','EP_MUNIT','EP_MOBILE','EP_CROWD','EP_NOVEH','EP_GROUPQ')]
+#X <- svi_all_counties_deaths[, c('EP_LIMENG','EP_NOHSDP', 'EP_AGE17','EP_MUNIT','EP_CROWD','EP_NOVEH','EP_GROUPQ','EP_DISABL')]
+
+
+# Splitting the data into train and test data
+set.seed(42)  # For reproducibility
+train_indices <- createDataPartition(y, p = 0.8, list = FALSE)
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Initiate the model
+lm_model3 <- lm(y_train ~ ., data = cbind(y_train, X_train))
+
+# Predictions on the test set
+y_predict <- predict(lm_model3, newdata = X_test)
+summary(lm_model3)
+# Score (R-squared)
+print(summary(lm_model3)$r.squared)
+
+# Coefficients
+deaths_all_counties_coef <- data.frame(Coef = coef(lm_model3)[-1], Features = names(coef(lm_model3)[-1]))
+deaths_all_counties_coef <- deaths_all_counties_coef[order(-deaths_all_counties_coef$Coef), ]
+
+```
+
+*The model's summary reveals that while the Multiple R-squared value is 0.8377 indicating that approximately 83.77% of the variance in the SVI score is captured by the model, the individual predictors' contributions vary in statistical significance. Notably, `EP_POV150` (poverty) shows a p-value close to the traditional threshold of statistical significance, suggesting a meaningful association with the SVI score. `EP_MUNIT` (multi-unit housing) also approaches significance, potentially reflecting the impact of housing conditions on social vulnerability.*
+
+*However, the variable `deaths` does not exhibit a significant association with the SVI score within the context of this model, suggesting that the number of deaths alone is not a direct predictor of social vulnerability as encapsulated by the `RPL_THEMES` score when considering the influence of the other variables.*
+
+*The model yields a residual standard error of 0.06291, and despite a substantial F-statistic, we need to take caution in the interpretation of non-significant variables. The Adjusted R-squared of 0.7616 reflects the model's explanatory power after accounting for the number of predictors, indicating a good fit to the data while acknowledging the reduced number of variables.*
+
+**Feature Selection for deaths MLR**
+
+```{r}
+
+# Stepwise feature selection
+lm_model4 <- step(lm_model3, direction = "both")
+```
+
+**Model after feature selection**
+```{r}
+# Display the selected model
+summary(lm_model4)
+
+# Get the selected features
+selected_features <- names(coef(lm_model4)[-1])
+selected_features
+
+```
+
+*The lm_model4 model after feature selection includes the predictors "EP_POV150," "EP_AGE65," "EP_NOHSDP," "EP_AGE17," "EP_SNGPNT," "EP_MUNIT," and "EP_MOBILE," which have been identified as the most influential on the Social Vulnerability Index (SVI) score in the context of COVID-19 related deaths.* 
+
+*The lm_model4 (model after feature selection) displays a Multiple R-squared value of 0.8231. This suggests that the model explains over 82% of the variance in the SVI score, a slight decrement from the 0.8377 observed in the full model `lm_model3`. However, the Adjusted R-squared value has improved to 0.7921, reinforcing the model's robustness when adjusted for the number of predictors included.*
+
+*Each variable within the lm_model4 has been evaluated for its statistical significance. Variables such as "EP_POV150" and "EP_AGE65" have shown strong significance, implying a robust relationship with the SVI score.*
+
+*It is noteworthy that the residual standard error of the lm_model4 remains comparable to that of the full model, reinforcing the accuracy of this more focused model. The F-statistic's substantial value corroborates the overall statistical validity of the lm_model4 model.*
+
+*In summation, the model after feature selection represents an optimized model that balances complexity with interpretability, achieving a notable degree of explanatory power with a reduced set of variables.*
+
+
+
+### SVI, Economic and COVID-19
+
+In our pursuit to comprehensively understand the determinants of Social Vulnerability Index (SVI), we merged three distinct datasets: SVI, median income, and COVID dataset based on their location ('county_fips' and 'Geo_ID'). This synergistic integration aimed to harness the collective insights encapsulated in socio-economic indicators, mean income statistics, and COVID-19-related metrics at the county level.
+
+**Objective:** model and predict the total SVI (RPL_THEMES) based on SVI-related variables, mean income, and COVID-19 metrics. By integrating these multifaceted dimensions, we strive to uncover the intricate relationships that contribute to social vulnerability, taking into account both pre-existing disparities and the impact of the ongoing pandemic. This predictive modeling initiative holds significant implications for strategic interventions, policy formulation, and community resilience efforts. By unraveling the intricate interplay of socio-economic and health factors, our models aim to provide actionable insights that can inform targeted interventions and support the development of resilient communities. In the subsequent sections, we delve into the application of Random Forest and Decision Tree models to further dissect these relationships, offering interpretability and predictive accuracy to our intricate dataset.
+
+
+
+
+```{r, include=FALSE}
+SVI_Data <- read.csv("SVI_2020_US.csv")
+
+econ <- read.csv("ACSDT5Y2020.B19013-Data.csv")
+
+
+us_cases <- read.csv('USAFacts/confirmed-covid-19-cases-in-us-by-state-and-county.csv')
+us_deaths <- read.csv('USAFacts/confirmed-covid-19-deaths-in-us-by-state-and-county.csv')
+
+Clean_data <- subset(SVI_Data, ST_ABBR == "CA")
+CA_SVI <- subset(Clean_data, select = c(STATE,STCNTY,COUNTY,FIPS,EP_POV150,EP_LIMENG,EP_AGE65, EP_MINRTY,	EP_UNEMP,	EP_NOHSDP,EP_AGE17,EP_DISABL,EP_SNGPNT,EP_MUNIT,EP_MOBILE,EP_CROWD,EP_NOVEH,EP_GROUPQ,RPL_THEMES) )
+
+# Renaming columns
+colnames(CA_SVI)[colnames(CA_SVI) == 'STCNTY'] <- 'county_fips'
+us_cases <- rename(us_cases, confirmed_cases = confirmed)
+
+
+# Filter out rows with any value equal to -999
+CA_SVI <- CA_SVI[rowSums(CA_SVI == -999, na.rm = TRUE) == 0, ]
+
+# Drop rows with missing values
+CA_SVI <- na.omit(CA_SVI)
+
+covid19_cases<-us_cases
+covid19_deaths<-us_deaths
+
+covid19_cases<-subset(covid19_cases, state_name=='CA')
+covid19_deaths<-subset(covid19_deaths, state_name=='CA')
+
+
+merged_data <- merge(covid19_cases, covid19_deaths, by = "county_fips")
+
+# Calculate total cases and deaths for each county
+covid19 <- merged_data %>%
+  group_by(county_fips) %>%
+  mutate(total_cases = sum(confirmed_cases),
+         total_deaths = sum(deaths)) %>%
+  ungroup()
+
+
+
+# Calculate total cases and deaths for each county
+covid19 <- covid19 %>%
+  group_by(county_fips) %>%
+  mutate(total_cases = sum(confirmed_cases),
+         total_deaths = sum(deaths)) %>%
+  ungroup()
+summary_data <- covid19 %>%
+  group_by(county_fips) %>%
+  summarize(total_cases = sum(confirmed_cases),
+            total_deaths = sum(deaths))
+
+#merging svi and summary_data
+svi_covid <- merge(CA_SVI, summary_data, by = "county_fips", all.x = TRUE)
+
+#clean data for economic
+econ <- subset(econ, select = c(GEO_ID, NAME,B19013_001E))
+econ <- econ[-c(1, 2), ] 
+
+
+names_to_change <- c("GEO_ID", "NAME", "B19013_001E")
+new_names <- c("GEO_ID", "tract", "income")
+
+econ <- setNames(econ, new_names)
+
+
+econ$GEO_ID <- sub(".*US0*(\\d+)", "\\1", econ$GEO_ID)
+
+svi_econ <- merge(econ, CA_SVI, by.x = "GEO_ID", by.y = "FIPS", all.x = TRUE, all.y = TRUE)
+
+
+total_na_count <- sum(is.na(svi_econ))
+#remove NA
+
+svi_econ <- na.omit(svi_econ)
+svi_econ <- svi_econ[svi_econ$income != "-", , drop = FALSE]
+
+
+#leaves us with 9001 rows 
+str(svi_econ$income)
+svi_econ$income <- as.numeric(as.character(svi_econ$income))
+total_na_count <- sum(is.na(svi_econ))
+svi_econ <- na.omit(svi_econ)
+
+merged_data1 <- svi_econ %>%
+  left_join(summary_data, by = c("county_fips" = "county_fips"))
+
+svi_econ_covid=merged_data1
+
+svi_econ_covid$income_r <- cut(svi_econ_covid$income, 
+                               breaks = c(-Inf, 50000, 100000, 200000, Inf),
+                               labels = c("income<50000", "50000<income<100000", "100000<income<200000", "income>200000"),
+                               include.lowest = TRUE)
+```
+
+
+**Decision tree using SVI, Economy and Covid-19 datasets**
+```{r}
+#Decision tree using income, covid and other variables
+
+
+
+# Set a seed for reproducibility
+set.seed(123)
+
+# Split the data into a training set (80%) and a test set (20%)
+splitIndex <- createDataPartition(svi_econ_covid$RPL_THEMES, p = 0.8, list = FALSE)
+train_data <- svi_econ_covid[splitIndex, ]
+test_data <- svi_econ_covid[-splitIndex, ]
+
+
+
+#decision tree model
+tree_model <- rpart(RPL_THEMES ~ total_cases + total_deaths + income_r + EP_AGE65 + EP_UNEMP+ EP_NOHSDP +EP_POV150, data = train_data)
+
+# Make predictions on the test set
+tree_predictions <- predict(tree_model, newdata = test_data)
+
+# RMSE for the decision tree
+tree_rmse <- sqrt(mean((test_data$RPL_THEMES - tree_predictions)^2))
+print(paste("Decision Tree RMSE:", tree_rmse))
+
+
+
+
+# For fancyRpartPlot (Trees) Answer "no" on installing from binary source
+fancyRpartPlot(tree_model)
+
+```
+
+**Results:** The regression tree model tries to delve into the intricate relationships between various factors and the Social Vulnerability Index (SVI), represented by the 'RPL_THEMES.' and other variables from covid and Economic datasets. The decision tree, rooted in the EP_NOHSDP variable, provides valuable insights into the nuanced predictors of SVI.
+
+The tree distinctly identifies EP_NOHSDP as a pivotal factor in the initial split, emphasizing the critical role of educational attainment in predicting SVI. Further branching into EP_POV150 and income_r delineates the socio-economic dimension of vulnerability. Notably, individuals with lower EP_NOHSDP scores and lower EP_POV150 scores are predicted to have lower SVI values, indicating a correlation between educational attainment, poverty levels, and social vulnerability. 
+
+
+Interestingly, the COVID-19-related variables, total_cases and total_deaths, do not prominently feature in the decision tree. This may suggest that, within the scope of our model, these variables may not be the primary drivers of social vulnerability when considered alongside educational attainment, poverty, and income. The prominence of income_r in the tree underscores the multifaceted nature of vulnerability, where refined income measures contribute significantly to the prediction of SVI.
+
+
+The decision tree's predictive performance, as measured by the Root Mean Squared Error (RMSE), is favorable, yielding an RMSE of 0.1386. This suggests that the model's predictions align closely with actual SVI values. The interpretability of the decision tree provides actionable insights, revealing the intricate interplay between socio-economic factors and vulnerability, allowing for targeted interventions and informed decision-making in efforts to address and mitigate social vulnerability.
+
+
+This decision tree provides a visually interpretable framework for understanding the complex interplay of factors influencing social vulnerability. As we present these findings, the nuanced relationships highlighted by the tree offer actionable insights for targeted interventions and policy measures, particularly focusing on education, income, and poverty alleviation in the context of social vulnerability.
+
+
+
+**Random Forest Model to identify significance of variables 3 datasets**
+```{r}
+#significant variables for predicting Total SVI (RPL_THEMES
+
+# Model
+rf_model <- randomForest(RPL_THEMES ~ ., data = svi_econ_covid)
+
+# feature importance
+print(rf_model$importance)
+
+
+
+```
+
+
+**Results:** The Random Forest model tries to discern the crucial features influencing the Social Vulnerability Index (SVI). The model identified key predictors by evaluating their impact on the prediction accuracy and purity of decision tree nodes. Notably, the most influential features include 'EP_NOHSDP,' representing the percentage of individuals without a high school diploma, and 'EP_POV150,' indicating the percentage of individuals living below 150% of the poverty line. These socio-economic factors prominently contribute to SVI, underscoring the importance of educational attainment and economic well-being in vulnerability assessment.
+
+Additionally, 'income_r,' a refined measure of income, emerged as a significant predictor, highlighting the nuanced role of income levels in shaping social vulnerability. The 'EP_CROWD' feature, capturing the percentage of households with crowded living conditions, signifies the impact of housing density on vulnerability. Furthermore, 'EP_LIMENG,' representing the percentage of individuals with limited English proficiency, and 'EP_UNEMP,' indicating the percentage of unemployed individuals, underscore the importance of language and employment status in vulnerability modeling*
+
+Our analysis extends beyond traditional demographic factors, incorporating 'total_cases' and 'total_deaths' as indicators of the COVID-19 impact. These variables dosen't have much significance in predicting the total SVI. As we present our findings, these identified features provide actionable insights for policymakers and practitioners seeking to address and mitigate social vulnerability in diverse communities. 
+
+**Conclusions:**
+
+Our comprehensive examination of the Social Vulnerability Index (SVI) in relation to COVID-19 data has yielded nuanced insights into the relationship between these two critical domains. The initial exploratory data analysis (EDA) revealed intriguing correlations within the dataset, suggesting complex interactions between SVI factors and COVID-19 metrics. However, the subsequent modeling phase provided a more in-depth perspective, indicating that there is no direct linear association between COVID-19 metrics (both confirmed cases and death rates) and the SVI.
+
+This lack of a straightforward predictive relationship between COVID-19 impact and SVI highlights the complexity of social vulnerability. It suggests that while COVID-19 has been a significant public health challenge, the factors contributing to social vulnerability are diverse and cannot be solely predicted based on the incidence or severity of the pandemic.
+
+This revelation is instrumental for policymakers and public health officials, as it guides the focus towards a more holistic understanding of vulnerability, encompassing a wider range of social, economic, and health-related factors.
+
